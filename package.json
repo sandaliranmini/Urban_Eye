@@ -1,0 +1,26 @@
+﻿{
+  "name": "urban-eye",
+  "version": "1.0.0",
+  "description": "Civic Issue Triage and Verification System for Sri Lankan Municipal Councils",
+  "main": "index.js",
+  "scripts": {
+    "client": "cd client && npm start",
+    "server": "cd server && npm run dev",
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "install-all": "npm install && cd client && npm install && cd ../server && npm install"
+  },
+  "keywords": [
+    "civic-tech",
+    "sri-lanka",
+    "municipal",
+    "issue-tracker",
+    "react",
+    "nodejs",
+    "mysql"
+  ],
+  "author": "IS Group 02 - Sabaragamuwa University of Sri Lanka",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.0"
+  }
+}
