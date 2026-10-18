@@ -104,12 +104,12 @@ Access at http://localhost:3000
 
 | Index No | Name |
 |----------|------|
-| 0122FIS0460 | W.A.S.R. Peiris |
-| 0222FIS0461 | W.A.V. Amandi |
-| 0322FIS0462 | J.P.S.S. Jayakody |
-| 0422FIS0507 | G.E.M. Semini |
-| 0522FIS0551 | K.P.K. Kawshalya |
-| 0622FIS0559 | S.W.G.P. Samarasinghe |
+| 22FIS0460 | W.A.S.R. Peiris |
+| 22FIS0461 | W.A.V. Amandi |
+| 22FIS0462 | J.P.S.S. Jayakody |
+| 22FIS0507 | G.E.M. Semini |
+| 22FIS0551 | K.P.K. Kawshalya |
+| 22FIS0559 | S.W.G.P. Samarasinghe |
 
 **Internal Supervisor**: Mr. G.A.C.A. Herath (Senior Lecturer, Grade II)
 
