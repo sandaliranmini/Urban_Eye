@@ -80,7 +80,7 @@ Terminal 1 - Backend:
 cd server && npm run dev
 
 Terminal 2 - Frontend:
-cd client && npm start
+cd client && npm run dev
 
 Access at http://localhost:3000
 
