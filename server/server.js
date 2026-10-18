@@ -4,7 +4,7 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 require('dotenv').config();
 const db = require('./config/db');
-
+const { startAutoCloseJob } = require('./cron/autoCloseTickets');
 const app = express();
 
 // Middleware
@@ -21,6 +21,11 @@ app.get('/api/health', async (req, res) => {
   } catch (err) {
     res.status(500).json({ status: 'error', message: err.message });
   }
+});
+
+app.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
+  startAutoCloseJob();
 });
 
 // Start server
