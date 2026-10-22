@@ -12,7 +12,8 @@ app.use(helmet());
 app.use(cors());
 app.use(express.json());
 app.use(morgan('dev'));
-
+app.use('/api/wards', require('./routes/wards'));
+app.use('/api/issues', require('./routes/issueRoutes'));
 // Health check
 app.get('/api/health', async (req, res) => {
   try {
