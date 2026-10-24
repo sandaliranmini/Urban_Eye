@@ -1,36 +1,42 @@
 import { useEffect, useState } from 'react';
-import axios from 'axios';
-import { FormControl, InputLabel, Select, MenuItem, CircularProgress, Alert } from '@mui/material';
+import {
+  FormControl, InputLabel, Select, MenuItem, FormHelperText, CircularProgress, Alert,
+} from '@mui/material';
 import LocationOnIcon from '@mui/icons-material/LocationOn';
+import axiosInstance from '../services/axiosInstance';
 
-export default function WardSelect({ value, onChange }) {
+export default function WardSelect({ value, onChange, error }) {
   const [wards, setWards] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [loadError, setLoadError] = useState(null);
 
   useEffect(() => {
-    axios.get('http://localhost:5000/api/wards')
+    axiosInstance.get('/wards')
       .then((res) => {
         setWards(res.data);
         setLoading(false);
       })
       .catch((err) => {
-        setError(err.message);
+        setLoadError(err.message);
         setLoading(false);
       });
   }, []);
 
   if (loading) return <CircularProgress />;
-  if (error) return <Alert severity="error">Error loading wards: {error}</Alert>;
+  if (loadError) return <Alert severity="error">Error loading wards: {loadError}</Alert>;
 
   return (
     <div className="w-full">
-      <FormControl fullWidth variant="outlined">
+      <FormControl fullWidth variant="outlined" error={!!error}>
         <InputLabel id="ward-select-label">Select Your Ward</InputLabel>
         <Select
           labelId="ward-select-label"
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => {
+            const id = e.target.value;
+            const ward = wards.find((w) => w.WARD_ID === id);
+            onChange(id, ward ? ward.WARD_NAME : '');
+          }}
           label="Select Your Ward"
           startAdornment={<LocationOnIcon color="action" sx={{ mr: 1 }} />}
         >
@@ -39,10 +45,11 @@ export default function WardSelect({ value, onChange }) {
           </MenuItem>
           {wards.map((w) => (
             <MenuItem key={w.WARD_ID} value={w.WARD_ID}>
-              {w.WARD_NAME} (Council ID: {w.COUNCIL_ID})
+              {w.WARD_NAME}
             </MenuItem>
           ))}
         </Select>
+        {error && <FormHelperText>{error}</FormHelperText>}
       </FormControl>
     </div>
   );
