@@ -1,57 +1,32 @@
 const express = require('express');
 const router = express.Router();
-// Notice we are importing from the models folder
-const Issue = require('../models/Issue');
+const upload = require('../middleware/upload');
+const devAuth = require('../middleware/devAuth');
+const issues = require('../controllers/issueController');
 
-// CREATE
-router.post('/', async (req, res) => {
-  try {
-    const issueId = await Issue.create(req.body);
-    res.status(201).json({ message: 'Issue reported successfully', issueId });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+// Turns multer errors (file too big, wrong type) into clean 400 JSON responses
+const uploadPhoto = (req, res, next) =>
+  upload.single('photo')(req, res, (err) => {
+    if (!err) return next();
+    const message = err.code === 'LIMIT_FILE_SIZE' ? 'Photo must be smaller than 5 MB' : err.message;
+    res.status(400).json({ success: false, message });
+  });
 
-// READ ALL
-router.get('/', async (req, res) => {
-  try {
-    const issues = await Issue.findAll();
-    res.json(issues);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+// Public
+router.get('/', issues.listIssues);
 
-// READ ONE
-router.get('/:id', async (req, res) => {
-  try {
-    const issue = await Issue.findById(req.params.id);
-    if (!issue) return res.status(404).json({ error: 'Issue not found' });
-    res.json(issue);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+// These two MUST stay above '/:id', otherwise Express treats "my-reports" and "ward" as an id
+// TODO: replace devAuth with authMiddleware when Peiris merges auth
+router.get('/my-reports', devAuth, issues.myReports);
+router.get('/ward/:wardId', issues.issuesByWard);
 
-// UPDATE
-router.put('/:id', async (req, res) => {
-  try {
-    await Issue.update(req.params.id, req.body);
-    res.json({ message: 'Issue updated successfully' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+router.get('/:id', issues.getIssue);
 
-// DELETE
-router.delete('/:id', async (req, res) => {
-  try {
-    await Issue.delete(req.params.id);
-    res.json({ message: 'Issue deleted successfully' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+// TODO: replace devAuth with authMiddleware when Peiris merges auth
+router.post('/', devAuth, uploadPhoto, issues.createIssue);
+
+// Other cards add their routes below this line, for example:
+// router.put('/:id/status', ...);
+// router.post('/:id/resolution', ...);
 
 module.exports = router;

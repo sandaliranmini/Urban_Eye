@@ -5,7 +5,7 @@ import {
 import LocationOnIcon from '@mui/icons-material/LocationOn';
 import axiosInstance from '../services/axiosInstance';
 
-export default function WardSelect({ value, onChange, error }) {
+export default function WardSelect({ value, onChange, error, allLabel }) {
   const [wards, setWards] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
@@ -28,10 +28,12 @@ export default function WardSelect({ value, onChange, error }) {
   return (
     <div className="w-full">
       <FormControl fullWidth variant="outlined" error={!!error}>
-        <InputLabel id="ward-select-label">Select Your Ward</InputLabel>
+        <InputLabel id="ward-select-label" shrink={!!allLabel}>Select Your Ward</InputLabel>
         <Select
           labelId="ward-select-label"
           value={value}
+          displayEmpty={!!allLabel}
+          notched={!!allLabel}
           onChange={(e) => {
             const id = e.target.value;
             const ward = wards.find((w) => w.WARD_ID === id);
@@ -41,7 +43,7 @@ export default function WardSelect({ value, onChange, error }) {
           startAdornment={<LocationOnIcon color="action" sx={{ mr: 1 }} />}
         >
           <MenuItem value="">
-            <em>None</em>
+            <em>{allLabel || 'None'}</em>
           </MenuItem>
           {wards.map((w) => (
             <MenuItem key={w.WARD_ID} value={w.WARD_ID}>
