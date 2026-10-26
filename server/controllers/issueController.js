@@ -24,6 +24,15 @@ exports.createIssue = async (req, res) => {
     if (!Number.isInteger(wardId) || wardId < 1) errors.push('A valid ward is required');
     if (errors.length) return fail(res, 400, errors.join('. '));
 
+    const existingIssue = await Issue.findDuplicate(wardId, category);
+    if (existingIssue) {
+      return res.status(409).json({ 
+        success: false,
+        message: 'A similar issue has already been reported in this ward within the last 30 days.',
+        existingIssueId: existingIssue.ISSUE_ID
+      });
+    }
+
     let beforePhoto;
     if (req.file) {
       beforePhoto = await uploadImage(req.file);

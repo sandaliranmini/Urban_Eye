@@ -123,6 +123,22 @@ const Issue = {
   async delete(id) {
     await db.query('DELETE FROM ISSUE WHERE ISSUE_ID = ?', [id]);
   },
+
+  async findDuplicate(ward_id, category) {
+    const [rows] = await db.query(
+      `SELECT I.ISSUE_ID, I.TITLE, I.CREATED_AT 
+       FROM ISSUE I 
+       WHERE I.WARD_ID = ? 
+         AND I.CATEGORY = ? 
+         AND I.CREATED_AT >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+         AND I.STATUS != 'Closed'
+       LIMIT 1`,
+      [ward_id, category]
+    );
+    return rows[0] || null;
+  },
+  
 };
+
 
 module.exports = Issue;
