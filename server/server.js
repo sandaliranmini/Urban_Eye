@@ -1,9 +1,11 @@
 const express = require('express');
+const http = require('http');                       
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 require('dotenv').config();
 const db = require('./config/db');
+const { initSocket } = require('./config/socket');   
 
 const app = express();
 
@@ -23,8 +25,11 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
-// Start server
+// Start server  (REPLACED the old app.listen block)
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
+const server = http.createServer(app);              
+initSocket(server);                                
+
+server.listen(PORT, () => {                           // CHANGED: server.listen instead of app.listen
   console.log(`Server running on http://localhost:${PORT}`);
 });
