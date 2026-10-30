@@ -1,4 +1,6 @@
 const express = require('express');
+const http = require('http'); 
+const { initSocket } = require('./config/socket');                      
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
@@ -26,7 +28,10 @@ app.get('/api/health', async (req, res) => {
 
 // Start server (listen once; start the cron job after the port is bound)
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
+const server = http.createServer(app);              
+initSocket(server);                                
+
+server.listen(PORT, () => {                           // CHANGED: server.listen instead of app.listen
   console.log(`Server running on http://localhost:${PORT}`);
   startAutoCloseJob();
 });
