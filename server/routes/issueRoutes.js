@@ -20,13 +20,18 @@ router.get('/', issues.listIssues);
 router.get('/my-reports', devAuth, issues.myReports);
 router.get('/ward/:wardId', issues.issuesByWard);
 
+// TODO: replace devAuth with authMiddleware when Peiris merges auth
+router.post('/check-duplicates', devAuth, issues.checkDuplicates);
+
 router.get('/:id', issues.getIssue);
 
 // TODO: replace devAuth with authMiddleware when Peiris merges auth
 router.post('/', devAuth, uploadPhoto, issues.createIssue);
 
+// TODO: replace devAuth with authMiddleware + an officer role check when Peiris merges auth
+router.put('/:id/status', devAuth, issues.updateStatus);
+
 // Other cards add their routes below this line, for example:
-// router.put('/:id/status', ...);
 // router.post('/:id/resolution', ...);
 
 module.exports = router;

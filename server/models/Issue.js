@@ -1,8 +1,9 @@
 const db = require('../config/db');
 
+// CAST makes NET_VOTES a number instead of a string
 const NET_VOTES =
   '(SELECT CAST(COALESCE(SUM(V.VOTE_TYPE), 0) AS SIGNED) FROM VOTE V WHERE V.ISSUE_ID = I.ISSUE_ID)';
-  
+
 // ORDER BY comes from this whitelist, never from user input
 const SORTS = {
   votes: 'I.IS_EMERGENCY DESC, NET_VOTES DESC, I.CREATED_AT DESC',
@@ -83,6 +84,31 @@ const Issue = {
     return row.total;
   },
 
+  // CARD 7: issues in the same ward and category within the last N days that are not Closed
+  async findPotentialDuplicates({ ward_id, category, days = 30 }) {
+    const [rows] = await db.query(
+      `SELECT ${LIST_COLUMNS}
+       FROM ISSUE I JOIN WARD W ON W.WARD_ID = I.WARD_ID
+       WHERE I.WARD_ID = ? AND I.CATEGORY = ? AND I.STATUS <> 'Closed'
+         AND I.CREATED_AT >= NOW() - INTERVAL ? DAY
+       ORDER BY I.CREATED_AT DESC
+       LIMIT 50`,
+      [ward_id, category, days]
+    );
+    return rows;
+  },
+
+  // CARD 8: who to notify about an issue (the reporter's name and email)
+  async findReporterContact(issueId) {
+    const [rows] = await db.query(
+      `SELECT I.ISSUE_ID, I.TITLE, C.FULL_NAME, C.EMAIL, C.IS_ACTIVE
+       FROM ISSUE I JOIN CITIZEN C ON C.CITIZEN_ID = I.CITIZEN_ID
+       WHERE I.ISSUE_ID = ?`,
+      [issueId]
+    );
+    return rows[0] || null;
+  },
+
   // 3. Get one issue by ID (with ward name, reporter name, latest after-photo)
   async findById(id) {
     const [rows] = await db.query(
@@ -123,22 +149,6 @@ const Issue = {
   async delete(id) {
     await db.query('DELETE FROM ISSUE WHERE ISSUE_ID = ?', [id]);
   },
-
-  async findDuplicate(ward_id, category) {
-    const [rows] = await db.query(
-      `SELECT I.ISSUE_ID, I.TITLE, I.CREATED_AT 
-       FROM ISSUE I 
-       WHERE I.WARD_ID = ? 
-         AND I.CATEGORY = ? 
-         AND I.CREATED_AT >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-         AND I.STATUS != 'Closed'
-       LIMIT 1`,
-      [ward_id, category]
-    );
-    return rows[0] || null;
-  },
-  
 };
-
 
 module.exports = Issue;
