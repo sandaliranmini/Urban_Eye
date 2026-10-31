@@ -12,8 +12,8 @@ app.use(helmet());
 app.use(cors());
 app.use(express.json());
 app.use(morgan('dev'));
+app.use('/api/auth', require('./routes/authRoutes'));
 
-// Health check
 app.get('/api/health', async (req, res) => {
   try {
     await db.query('SELECT 1');
