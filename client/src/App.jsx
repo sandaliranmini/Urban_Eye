@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import ProtectedRoute from './components/common/ProtectedRoute';
 import { useState } from 'react';
 import WardSelect from './components/WardSelect';
+import ReportIssue from './pages/ReportIssue';
+import IssueList from './pages/IssueList';
 
 // Placeholder pages — we'll build these next
 const Landing = () => <div className="p-8 text-2xl">Landing Page</div>;
@@ -41,7 +43,9 @@ function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/issue/:id" element={<IssueDetail />} />
-
+        <Route path="/report" element={<ReportIssue />} />
+        <Route path="/issues" element={<IssueList />} />
+        
         {/* Protected routes */}
         <Route
           path="/dashboard"
