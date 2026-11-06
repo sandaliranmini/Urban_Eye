@@ -14,16 +14,17 @@ app.use(helmet());
 app.use(cors());
 app.use(express.json());
 app.use(morgan('dev'));
+app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/wards', require('./routes/wards'));
 app.use('/api/issues', require('./routes/issueRoutes'));
 
-// Health check
 app.get('/api/health', async (req, res) => {
   try {
     await db.query('SELECT 1');
     res.json({ status: 'ok', db: 'connected' });
-  } catch (err) {
-    res.status(500).json({ status: 'error', message: err.message });
+  }catch (err) {
+    console.error('Health check error:', err);
+    res.status(500).json({ status: 'error', code: err.code, message: err.message });
   }
 });
 

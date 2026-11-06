@@ -1,0 +1,5 @@
+[33m4a81692[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mRanmini[m[33m)[m add login, logout and JWT authentication
+[33m850d7b5[m[33m ([m[1;31morigin/Ranmini[m[33m)[m Add citizen registration API  Add POST /api/auth/register Validate required fields, password length and NIC format Check the selected ward exists Enforce one account per NIC/email (409 on duplicates) Hash passwords with bcrypt before saving Create the user with the CITIZEN role and return 201
+[33m0330f52[m Add Sri Lankan NIC validator- Validate old (9 digits + V/X) and new (12-digit) NIC formats, decode birth date and gender, and normalise to the 12-digit form so one person cannot register twice.
+[33m580ef93[m create remaining 6 tables.
+[33m08052bb[m Create Urban eye databse with 5 tables (citizen, council, issue, officer,ward)

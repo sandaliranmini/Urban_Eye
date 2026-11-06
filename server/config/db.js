@@ -1,12 +1,12 @@
-const mysql = require('mysql2/promise');
 require('dotenv').config();
+const mysql = require('mysql2/promise');
 
 const pool = mysql.createPool({
-  host: '127.0.0.1',
-  port: 3306,          // (Use 3306, since XAMPP usually resets to this)
-  user: 'root',        // HARDCODED USER
-  password: '',        // HARDCODED EMPTY PASSWORD
-  database: 'URBAN_EYE',
+  host: process.env.DB_HOST || '127.0.0.1',
+  port: Number(process.env.DB_PORT) || 3306,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
   waitForConnections: true,
   connectionLimit: 10,
 });
