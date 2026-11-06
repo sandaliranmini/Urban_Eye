@@ -7,6 +7,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useId, useMemo, useState } from 'react';
 import { Link, Navigate, useLocation } from 'react-router-dom';
+import WardSelect from './components/WardSelect';
 
 // ---------------------------------------------------------------- config
 const API = 'http://localhost:5000/api/auth'; // change for deployment
@@ -325,19 +326,11 @@ function LoginCard() {
 }
 
 function RegisterCard() {
-  const [wards, setWards] = useState([]);
-  const [wardsError, setWardsError] = useState('');
   const [f, setF] = useState({ full_name: '', nic: '', mobile_number: '', email: '', ward_id: '', password: '', confirm: '' });
   const [errors, setErrors] = useState({});
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
-
-  useEffect(() => {
-    request('/wards')
-      .then((d) => setWards(d.wards))
-      .catch((e) => setWardsError(e.message));
-  }, []);
 
   const set = (k) => (e) => setF((p) => ({ ...p, [k]: e.target.value }));
 
@@ -403,12 +396,11 @@ function RegisterCard() {
         <Field label="Mobile number" value={f.mobile_number} onChange={set('mobile_number')} error={errors.mobile_number} placeholder="07X XXX XXXX" autoComplete="tel" />
         <Field label="Email (optional)" value={f.email} onChange={set('email')} error={errors.email} placeholder="you@example.com" autoComplete="email" />
       </div>
-      <Select label="Ward" value={f.ward_id} onChange={set('ward_id')} error={errors.ward_id || wardsError}>
-        <option value="">Select your ward</option>
-        {wards.map((w) => (
-          <option key={w.ward_id} value={w.ward_id}>{w.ward_name}</option>
-        ))}
-      </Select>
+      <WardSelect
+  value={f.ward_id}
+  onChange={(id) => setF((p) => ({ ...p, ward_id: id }))}
+  error={errors.ward_id}
+/>
       <div className="grid2">
         <PasswordField label="Password" value={f.password} onChange={set('password')} error={errors.password} placeholder="8 to 72 characters" autoComplete="new-password" />
         <PasswordField label="Confirm password" value={f.confirm} onChange={set('confirm')} error={errors.confirm} placeholder="Repeat password" autoComplete="new-password" />
