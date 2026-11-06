@@ -28,6 +28,18 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
+app.get('/api/wards', async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      'SELECT WARD_ID, COUNCIL_ID, WARD_NAME FROM WARD ORDER BY WARD_NAME'
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('Wards error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // Start server (listen once; start the cron job after the port is bound)
 const PORT = process.env.PORT || 5000;
 const server = http.createServer(app);              
