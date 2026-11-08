@@ -9,6 +9,14 @@ const db = require('./config/db');
 const { startAutoCloseJob } = require('./cron/autoCloseTickets');
 const app = express();
 
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err);
+  process.exit(1); // the process is in an unknown state, so let nodemon or Railway restart it
+});
+
 // Middleware
 app.use(helmet());
 app.use(cors());
@@ -17,6 +25,10 @@ app.use(morgan('dev'));
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/wards', require('./routes/wards'));
 app.use('/api/issues', require('./routes/issueRoutes'));
+
+const { notFound, errorHandler } = require('./middleware/errorMiddleware');
+app.use(notFound);
+app.use(errorHandler);
 
 app.get('/api/health', async (req, res) => {
   try {
