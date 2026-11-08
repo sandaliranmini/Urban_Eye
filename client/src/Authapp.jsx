@@ -8,6 +8,7 @@
 import { createContext, useCallback, useContext, useEffect, useId, useMemo, useState } from 'react';
 import { Link, Navigate, useLocation } from 'react-router-dom';
 import WardSelect from './components/WardSelect';
+import ReportIssue from './pages/ReportIssue';
 
 // ---------------------------------------------------------------- config
 const API = 'http://localhost:5000/api/auth'; // change for deployment
@@ -34,6 +35,7 @@ const PAGES = {
   issues: { label: 'Ward issues', roles: ['supervisor', 'admin'] },
   verify: { label: 'Verification queue', roles: ['supervisor', 'admin'] },
   addOfficer: { label: 'Add officer', roles: ['admin'] },
+    profile: { label: 'My profile', roles: ['citizen', 'field_officer', 'supervisor', 'admin'] },
 };
 const canOpen = (role, page) => !!PAGES[page] && PAGES[page].roles.includes(role);
 
@@ -59,7 +61,8 @@ async function request(path, { method = 'GET', body, token } = {}) {
 
 const loadSession = () => {
   try {
-    return JSON.parse(localStorage.getItem(STORE_KEY));
+    const s = JSON.parse(localStorage.getItem(STORE_KEY));
+    return s && s.token && s.user && s.user.role ? s : null;
   } catch {
     return null;
   }
@@ -92,6 +95,14 @@ export function AuthProvider({ children }) {
     saveSession(s);
     setSession(s);
     setNotice('');
+  }, []);
+    // Update the stored user (and token, if the server sent a new one) after a profile change
+  const updateUser = useCallback((patch, token) => {
+    setSession((prev) => {
+      const s = { token: token || prev.token, user: { ...prev.user, ...patch } };
+      saveSession(s);
+      return s;
+    });
   }, []);
 
   const signOut = useCallback(async () => {
@@ -133,9 +144,9 @@ export function AuthProvider({ children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const value = useMemo(
-    () => ({ session, user: session?.user, notice, checking, signIn, signOut, authed }),
-    [session, notice, checking, signIn, signOut, authed]
+    const value = useMemo(
+    () => ({ session, user: session?.user, notice, checking, signIn, signOut, authed, updateUser }),
+    [session, notice, checking, signIn, signOut, authed, updateUser]
   );
   return (
     <AuthContext.Provider value={value}>
@@ -277,6 +288,7 @@ function LoginCard() {
         method: 'POST',
         body: { identifier: identifier.trim(), password },
       });
+            if (!data.user) throw new Error('Unexpected response from the server');
       signIn({ token: data.token, user: data.user });
     } catch (err) {
       setError(err.message);
@@ -284,6 +296,15 @@ function LoginCard() {
       setBusy(false);
     }
   };
+
+    // Update the stored user (and token, if the server sent a new one) after a profile change
+  const updateUser = useCallback((patch, token) => {
+    setSession((prev) => {
+      const s = { token: token || prev.token, user: { ...prev.user, ...patch } };
+      saveSession(s);
+      return s;
+    });
+  }, []);
 
   const switchKind = (k) => {
     setKind(k);
@@ -439,7 +460,7 @@ function Dashboard({ keys }) {
           ))}
         </nav>
         <main className="content">
-          {!canOpen(role, page) ? <Forbidden /> : page === 'home' ? <Home role={role} go={setPage} /> : page === 'addOfficer' ? <AddOfficer /> : <Placeholder title={PAGES[page].label} />}
+          {!canOpen(role, page) ? <Forbidden /> : page === 'home' ? <Home role={role} go={setPage} />:page === 'report' ? <ReportIssue defaultWardId={user.ward_id || ''} /> : page === 'profile' ? <Profile /> : page === 'profile' ? <Profile /> : page === 'addOfficer' ? <AddOfficer /> : <Placeholder title={PAGES[page].label} />}
         </main>
       </div>
     </div>
@@ -570,6 +591,328 @@ function AddOfficer() {
     </form>
   );
 }
+// ---------------------------------------------------------------- profile management
+const fmtMonth = (d) => (d ? new Date(d).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' }) : '');
+const initials = (n = '') => n.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('');
+
+const LockIcon = () => (
+  <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4B5B70" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="5" y="11" width="14" height="9" rx="2" />
+    <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+  </svg>
+);
+
+const RoField = ({ label, value }) => (
+  <div className="field">
+    <label>{label}</label>
+    <div className="ro"><span>{value || '-'}</span><LockIcon /></div>
+  </div>
+);
+
+const InfoRow = ({ label, children }) => (
+  <div className="irow"><span>{label}</span><span>{children || '-'}</span></div>
+);
+
+function Profile() {
+  const { authed, updateUser } = useAuth();
+  const [me, setMe] = useState(null);
+  const [view, setView] = useState('view'); // view | edit | password
+  const [toast, setToast] = useState('');
+  const [error, setError] = useState('');
+
+  const load = useCallback(async () => {
+    try {
+      const d = await authed('/me');
+      setMe(d.user);
+      setError('');
+    } catch (e) {
+      if (e.status !== 401) setError(e.message);
+    }
+  }, [authed]);
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!toast) return undefined;
+    const t = setTimeout(() => setToast(''), 4000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  const done = (msg) => {
+    setToast(msg);
+    setView('view');
+    load();
+  };
+
+  if (error) return <Alert>{error}</Alert>;
+  if (!me) return <div className="skeleton" aria-busy="true" aria-label="Loading profile" />;
+
+  return (
+    <div className="profile">
+      {toast && <div className="toast" role="status">{toast}</div>}
+      {view === 'view' && <ProfileView me={me} onEdit={() => setView('edit')} onPassword={() => setView('password')} />}
+      {view === 'edit' && (
+        <EditProfile
+          me={me}
+          onCancel={() => setView('view')}
+          onSaved={(patch, token) => {
+            updateUser(patch, token);
+            done('Profile updated');
+          }}
+        />
+      )}
+      {view === 'password' && <ChangePassword onCancel={() => setView('view')} onSaved={() => done('Password updated')} />}
+    </div>
+  );
+}
+
+function ProfileView({ me, onEdit, onPassword }) {
+  const isCitizen = me.kind === 'citizen';
+  const score = Math.min(100, Math.max(0, Number(me.credibility_score) || 0));
+  return (
+    <>
+      <div className="pcard phead">
+        <div className="avatar" aria-hidden="true">{initials(me.full_name)}</div>
+        <div>
+          <div className="pname">{me.full_name}</div>
+          <RoleBadge role={me.role} />
+        </div>
+        <div className="pactions">
+          <button className="btn-outline" onClick={onPassword}>Change password</button>
+          {isCitizen && <button className="btn" onClick={onEdit}>Edit profile</button>}
+        </div>
+      </div>
+
+      {isCitizen ? (
+        <>
+          <div className="pgrid">
+            <div className="pcard">
+              <h3>Personal information</h3>
+              <InfoRow label="Full name">{me.full_name}</InfoRow>
+              <InfoRow label="Mobile number">{me.mobile_number}</InfoRow>
+              <InfoRow label="Email">{me.email}</InfoRow>
+              <InfoRow label="Address">{me.address || 'Not provided'}</InfoRow>
+            </div>
+            <div className="pcard">
+              <h3>Account</h3>
+              <InfoRow label="NIC"><span className="badge ok">Verified</span></InfoRow>
+              <InfoRow label="Member since">{fmtMonth(me.created_at)}</InfoRow>
+              <InfoRow label="Ward">{me.ward_name}</InfoRow>
+            </div>
+            <div className="pcard">
+              <h3>Credibility score</h3>
+              <div className="score">{score}</div>
+              <div className="bar"><i style={{ width: `${score}%` }} /></div>
+              <div className="hint">Reflects how reliable your reports have been.</div>
+            </div>
+            <div className="pcard">
+              <h3>Ward</h3>
+              <InfoRow label="Ward">{me.ward_name}</InfoRow>
+              <InfoRow label="Council">{me.council_name}</InfoRow>
+            </div>
+          </div>
+          <DeactivateCard />
+        </>
+      ) : (
+        <>
+          <Alert kind="warn">These details are managed by an administrator. Contact them to request a change.</Alert>
+          <div className="pcard form-card">
+            <div className="grid2">
+              <RoField label="Employee ID" value={me.employee_id} />
+              <RoField label="Full name" value={me.full_name} />
+              <RoField label="Email" value={me.email} />
+              <RoField label="Department" value={me.department} />
+              <RoField label="Council" value={me.council_name} />
+              <RoField label="Ward" value={me.ward_name || 'All wards'} />
+            </div>
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
+function EditProfile({ me, onCancel, onSaved }) {
+  const { authed } = useAuth();
+  const start = {
+    full_name: me.full_name || '',
+    mobile_number: me.mobile_number || '',
+    email: me.email || '',
+    address: me.address || '',
+    ward_id: me.ward_id,
+  };
+  const [f, setF] = useState(start);
+  const [errors, setErrors] = useState({});
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const dirty = JSON.stringify(f) !== JSON.stringify(start);
+  const set = (k) => (e) => setF((p) => ({ ...p, [k]: e.target.value }));
+  const cancel = () => {
+    if (!dirty || window.confirm('Discard your changes?')) onCancel();
+  };
+
+  const submit = async (ev) => {
+    ev.preventDefault();
+    setError('');
+    const e = {};
+    if (!f.full_name.trim()) e.full_name = 'Enter your full name';
+    if (!/^(?:\+94|0)7\d{8}$/.test(f.mobile_number.trim())) e.mobile_number = 'Enter a valid mobile number, e.g. 0771234567';
+    if (f.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email.trim())) e.email = 'Enter a valid email address';
+    if (!f.ward_id) e.ward_id = 'Select your ward';
+    setErrors(e);
+    if (Object.keys(e).length) return;
+    setBusy(true);
+    try {
+      const d = await authed('/me', {
+        method: 'PATCH',
+        body: {
+          full_name: f.full_name.trim(),
+          mobile_number: f.mobile_number.trim(),
+          email: f.email.trim(),
+          address: f.address.trim(),
+          ward_id: Number(f.ward_id),
+        },
+      });
+      onSaved({ full_name: d.user.full_name, ward_id: d.user.ward_id }, d.token);
+    } catch (err) {
+      if (err.status !== 401) setError(err.message);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form className="pcard form-card" onSubmit={submit} noValidate>
+      <div>
+        <h1>Edit profile</h1>
+        <p className="sub">Update your contact details and ward.</p>
+      </div>
+      <Alert>{error}</Alert>
+      <div className="grid2">
+        <Field label="Full name" value={f.full_name} onChange={set('full_name')} error={errors.full_name} autoComplete="name" />
+        <Field label="Mobile number" value={f.mobile_number} onChange={set('mobile_number')} error={errors.mobile_number} autoComplete="tel" />
+        <Field label="Email" value={f.email} onChange={set('email')} error={errors.email} autoComplete="email" />
+        <Field label="Address (optional)" value={f.address} onChange={set('address')} autoComplete="street-address" />
+      </div>
+      <RoField label="NIC number" value="Verified, not shown" />
+      <WardSelect value={f.ward_id} onChange={(id) => setF((p) => ({ ...p, ward_id: id }))} error={errors.ward_id} />
+      {String(f.ward_id) !== String(me.ward_id) && (
+        <Alert kind="warn">Changing your ward moves future reports to the new ward. Reports you already made stay in your old ward.</Alert>
+      )}
+      <div className="pactions-left">
+        <button className="btn" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</button>
+        <button className="btn-outline" type="button" onClick={cancel}>Cancel</button>
+      </div>
+    </form>
+  );
+}
+
+const STRENGTH_LABEL = ['Too short', 'Weak', 'Fair', 'Good', 'Strong'];
+const strength = (p) =>
+  (p.length >= 8) + (p.length >= 12) + (/[a-z]/.test(p) && /[A-Z]/.test(p) && /\d/.test(p)) + /[^A-Za-z0-9]/.test(p);
+
+function ChangePassword({ onCancel, onSaved }) {
+  const { authed } = useAuth();
+  const [cur, setCur] = useState('');
+  const [next, setNext] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [errors, setErrors] = useState({});
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const n = next ? strength(next) : 0;
+
+  const submit = async (ev) => {
+    ev.preventDefault();
+    setError('');
+    const e = {};
+    if (!cur) e.cur = 'Enter your current password';
+    if (next.length < 8 || new TextEncoder().encode(next).length > 72) e.next = 'Password must be 8 to 72 characters';
+    else if (next === cur) e.next = 'New password must be different from the current one';
+    if (confirm !== next) e.confirm = 'Passwords do not match';
+    setErrors(e);
+    if (Object.keys(e).length) return;
+    setBusy(true);
+    try {
+      await authed('/me/password', { method: 'POST', body: { current_password: cur, new_password: next } });
+      onSaved();
+    } catch (err) {
+      if (err.status === 401) return;
+      if (err.message.startsWith('Current password')) setErrors({ cur: err.message });
+      else setError(err.message);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form className="pcard form-card narrow-form" onSubmit={submit} noValidate>
+      <div>
+        <h1>Change password</h1>
+        <p className="sub">Use at least 8 characters. Longer passwords are safer.</p>
+      </div>
+      <Alert>{error}</Alert>
+      <PasswordField label="Current password" value={cur} onChange={(e) => setCur(e.target.value)} error={errors.cur} autoComplete="current-password" />
+      <PasswordField label="New password" value={next} onChange={(e) => setNext(e.target.value)} error={errors.next} autoComplete="new-password" />
+      <div className="meter" aria-hidden="true">
+        {[0, 1, 2, 3].map((i) => <i key={i} className={i < n ? 'on' : ''} />)}
+      </div>
+      <div className="hint">Strength: {STRENGTH_LABEL[n]}. 8 to 72 characters.</div>
+      <PasswordField label="Confirm new password" value={confirm} onChange={(e) => setConfirm(e.target.value)} error={errors.confirm} autoComplete="new-password" />
+      <div className="pactions-left">
+        <button className="btn" type="submit" disabled={busy}>{busy ? 'Updating…' : 'Update password'}</button>
+        <button className="btn-outline" type="button" onClick={onCancel}>Cancel</button>
+      </div>
+    </form>
+  );
+}
+
+function DeactivateCard() {
+  const { authed, signOut } = useAuth();
+  const [open, setOpen] = useState(false);
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError('');
+    if (!password) {
+      setError('Enter your password to confirm');
+      return;
+    }
+    setBusy(true);
+    try {
+      await authed('/me/deactivate', { method: 'POST', body: { password } });
+      await signOut();
+    } catch (err) {
+      if (err.status !== 401) setError(err.message);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="pcard danger-card">
+      <div className="drow">
+        <div>
+          <div className="dtitle">Deactivate account</div>
+          <div className="hint">You will no longer be able to log in with this account.</div>
+        </div>
+        {!open && <button className="btn-outline danger" onClick={() => setOpen(true)}>Deactivate account</button>}
+      </div>
+      {open && (
+        <form onSubmit={submit} noValidate className="dform">
+          <PasswordField label="Enter your password to confirm" value={password} onChange={(e) => setPassword(e.target.value)} error={error} autoComplete="current-password" />
+          <div className="pactions-left">
+            <button className="btn danger-btn" type="submit" disabled={busy}>{busy ? 'Deactivating…' : 'Yes, deactivate'}</button>
+            <button className="btn-outline" type="button" onClick={() => { setOpen(false); setPassword(''); setError(''); }}>Cancel</button>
+          </div>
+        </form>
+      )}
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------- route guard + dashboards
 // <ProtectedRoute>                    any logged-in user
@@ -585,15 +928,15 @@ export function ProtectedRoute({ roles, children }) {
   return children;
 }
 
-export const CitizenDashboard = () => <Dashboard keys={['home', 'report', 'mine']} />;
+export const CitizenDashboard = () => <Dashboard keys={['home', 'report', 'mine','profile']} />;
 
 export function OfficerDashboard() {
   const { user } = useAuth();
-  const keys = user.role === 'supervisor' ? ['home', 'issues', 'verify'] : ['home', 'assigned'];
+  const keys = user.role === 'supervisor' ? ['home', 'issues', 'verify','profile'] : ['home', 'assigned','profile'];
   return <Dashboard keys={keys} />;
 }
 
-export const AdminDashboard = () => <Dashboard keys={['home', 'issues', 'verify', 'addOfficer']} />;
+export const AdminDashboard = () => <Dashboard keys={['home', 'issues', 'verify', 'addOfficer', 'profile']} />;
 
 // ---------------------------------------------------------------- styles
 const CSS = `
@@ -670,6 +1013,40 @@ button{font-family:inherit}
 .tile span{color:var(--muted)}
 .tile:hover{border-color:var(--secondary)}
 
+.profile{display:flex;flex-direction:column;gap:20px;max-width:900px}
+.pcard{background:#fff;border:1px solid var(--border);border-radius:12px;padding:24px;display:flex;flex-direction:column;gap:6px}
+.pcard h3{margin:0 0 6px;font-size:16px}
+.form-card{gap:18px;max-width:720px}
+.narrow-form{max-width:520px}
+.phead{flex-direction:row;align-items:center;gap:20px}
+.avatar{width:72px;height:72px;border-radius:50%;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:26px;flex:none}
+.pname{font-size:24px;font-weight:700;margin-bottom:6px}
+.pactions{margin-left:auto;display:flex;gap:12px}
+.pactions .btn,.pactions-left .btn{height:44px}
+.pactions-left{display:flex;gap:12px;margin-top:6px}
+.pgrid{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start}
+.irow{display:flex;justify-content:space-between;gap:16px;padding:10px 0;border-bottom:1px solid var(--tint);font-size:15px}
+.irow span:first-child{color:var(--muted)}
+.irow span:last-child{font-weight:500;text-align:right}
+.badge.ok{background:#E8F5EE;color:#1B6B49}
+.score{font-size:40px;font-weight:700;color:var(--secondary)}
+.bar{height:8px;border-radius:4px;background:var(--tint)}
+.bar i{display:block;height:8px;border-radius:4px;background:var(--secondary)}
+.ro{height:48px;padding:0 14px;border-radius:8px;background:var(--tint);color:var(--muted);font-size:16px;font-weight:400;display:flex;align-items:center;justify-content:space-between}
+.btn-outline{height:44px;padding:0 20px;border:1px solid var(--primary);border-radius:8px;background:#fff;color:var(--primary);font:600 15px inherit;font-family:inherit;cursor:pointer}
+.btn-outline.danger{border-color:var(--emergency);color:#B42318}
+.danger-btn{background:#B42318}
+.danger-card{border-color:#F4B8B2}
+.drow{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.dtitle{font-size:16px;font-weight:700;color:#B42318}
+.dform{display:flex;flex-direction:column;gap:12px;margin-top:12px;max-width:420px}
+.meter{display:flex;gap:6px}
+.meter i{flex:1;height:6px;border-radius:3px;background:var(--tint)}
+.meter i.on{background:var(--secondary)}
+.toast{padding:12px 16px;border-radius:8px;background:#E8F5EE;border:1px solid #A8D5BC;color:#1B6B49;font-size:14px}
+.skeleton{height:320px;border-radius:12px;background:linear-gradient(90deg,var(--tint),#fff,var(--tint));background-size:200% 100%;animation:sk 1.2s infinite}
+@keyframes sk{to{background-position:-200% 0}}
+
 @media (max-width:900px){
   .panel{display:none}
   .stage{padding:24px 16px}
@@ -678,5 +1055,7 @@ button{font-family:inherit}
   .side{display:none}
   .content{padding:24px 20px}
   .topbar{padding:0 16px}
+  .pgrid{grid-template-columns:1fr}
+  .phead{flex-wrap:wrap}
 }
 `;

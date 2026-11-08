@@ -12,9 +12,9 @@ const initialForm = {
   ward_id: '', ward_name: '', photo: null,
 };
 
-export default function ReportIssue() {
+export default function ReportIssue({ defaultWardId = '' }) {
   const [step, setStep] = useState(0);
-  const [form, setForm] = useState(initialForm);   // later: default ward_id from the logged-in citizen
+  const [form, setForm] = useState({ ...initialForm, ward_id: defaultWardId });
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [serverError, setServerError] = useState('');
@@ -69,10 +69,10 @@ export default function ReportIssue() {
         <Link to={`/issue/${created.issue_id}`} className="inline-block min-h-11 rounded bg-blue-600 px-5 py-2 text-white">
           View your report
         </Link>
-        <button type="button" onClick={() => { setCreated(null); setForm(initialForm); setStep(0); }}
-          className="ml-3 min-h-11 rounded border px-5 py-2">
-          Report another
-        </button>
+        <button type="button" onClick={() => { setCreated(null); setForm({ ...initialForm, ward_id: defaultWardId }); setStep(0); }}
+  className="ml-3 min-h-11 rounded border px-5 py-2">
+  Report another
+</button>
       </main>
     );
   }
