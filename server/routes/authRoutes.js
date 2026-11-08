@@ -1,9 +1,18 @@
 // server/routes/authRoutes.js
-// POST /api/auth/register  citizen registration (NIC-verified, one account per NIC, ward selected)
-// POST /api/auth/login     email or NIC + password -> JWT
-// POST /api/auth/logout    stateless logout (client discards token)
-// GET  /api/auth/me        returns the logged-in user (also a test for the middleware)
-// Exports: router (default) and router.authenticate (middleware for protecting other routes)
+// PUBLIC
+//   GET   /api/auth/wards            ward list for forms
+//   POST  /api/auth/register         citizen registration (NIC-verified, one account per NIC)
+//   POST  /api/auth/login            citizen login: email or NIC + password -> JWT
+//   POST  /api/auth/officer/login    officer login: email or employee ID + password -> JWT
+// PROTECTED
+//   POST  /api/auth/logout           stateless logout (client discards token)
+//   GET   /api/auth/me               current user with ward/council names (citizen or officer)
+//   PATCH /api/auth/me               citizen edits own details (name, mobile, email, address, ward)
+//   POST  /api/auth/me/password      change own password (citizen or officer)
+//   POST  /api/auth/me/deactivate    citizen deactivates own account (needs password)
+//   POST  /api/auth/officers         admin only: create an officer account
+// Exports: router (default), router.authenticate, router.requireRole
+// Roles in the token: citizen | field_officer | supervisor | admin
 
 const express = require('express');
 const bcrypt = require('bcrypt');
@@ -23,6 +32,10 @@ const router = express.Router();
 const SALT_ROUNDS = 12;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '1h';
 
+// OFFICER.ROLE enum value -> role name used in tokens and requireRole()
+const ROLE_SLUG = { 'Field Officer': 'field_officer', Supervisor: 'supervisor', Admin: 'admin' };
+const OFFICER_ENUMS = Object.keys(ROLE_SLUG);
+
 // Compared against when no account is found, so response time doesn't reveal which accounts exist
 const DUMMY_HASH = bcrypt.hashSync('not-a-real-password', SALT_ROUNDS);
 
@@ -34,15 +47,27 @@ const hashNIC = (nic) =>
 const isValidNic = (r) => r === true || (r && r.valid === true);
 
 const isStr = (v) => typeof v === 'string';
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MOBILE_RE = /^(?:\+94|0)7\d{8}$/;
+const pwOk = (p) => isStr(p) && p.length >= 8 && Buffer.byteLength(p) <= 72;
 
-const signToken = (citizen) =>
-  jwt.sign(
-    { sub: citizen.CITIZEN_ID, ward_id: citizen.WARD_ID, role: 'citizen' },
-    process.env.JWT_SECRET,
-    { algorithm: 'HS256', expiresIn: JWT_EXPIRES_IN }
-  );
+const signToken = (claims) =>
+  jwt.sign(claims, process.env.JWT_SECRET, { algorithm: 'HS256', expiresIn: JWT_EXPIRES_IN });
 
-// ---------- Middleware: protects any route it is placed in front of ----------
+const citizenToken = (c) =>
+  signToken({ sub: c.CITIZEN_ID, kind: 'citizen', role: 'citizen', ward_id: c.WARD_ID });
+
+const officerToken = (o) =>
+  signToken({
+    sub: o.OFFICER_ID,
+    kind: 'officer',
+    role: ROLE_SLUG[o.ROLE],
+    ward_id: o.WARD_ID,
+    council_id: o.COUNCIL_ID,
+  });
+
+// ---------- Middleware ----------
+// Verifies the Bearer token and sets req.user
 const authenticate = (req, res, next) => {
   const header = req.headers.authorization || '';
   const [scheme, token] = header.split(' ');
@@ -51,8 +76,18 @@ const authenticate = (req, res, next) => {
     return res.status(401).json({ message: 'Authentication required' });
   }
   try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
-    req.user = { citizen_id: payload.sub, ward_id: payload.ward_id, role: payload.role };
+    const p = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
+    // Tokens issued before roles existed have no "kind": treat them as citizen tokens
+    const kind = p.kind || 'citizen';
+    req.user = {
+      id: p.sub,
+      kind,
+      role: p.role || 'citizen',
+      ward_id: p.ward_id ?? null,
+      council_id: p.council_id ?? null,
+      citizen_id: kind === 'citizen' ? p.sub : undefined,
+      officer_id: kind === 'officer' ? p.sub : undefined,
+    };
     next();
   } catch (err) {
     const message = err.name === 'TokenExpiredError' ? 'Token expired' : 'Invalid token';
@@ -60,13 +95,26 @@ const authenticate = (req, res, next) => {
   }
 };
 
-// Optional role guard for later, e.g. router.get('/x', authenticate, requireRole('officer'), handler)
+// Use after authenticate: router.get('/x', authenticate, requireRole('supervisor', 'admin'), handler)
 const requireRole = (...roles) => (req, res, next) =>
-  roles.includes(req.user?.role)
-    ? next()
-    : res.status(403).json({ message: 'Forbidden' });
+  roles.includes(req.user?.role) ? next() : res.status(403).json({ message: 'Forbidden' });
 
-// ---------- POST /register ----------
+// ---------- GET /wards (public) ----------
+router.get('/wards', async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      'SELECT WARD_ID, COUNCIL_ID, WARD_NAME FROM WARD ORDER BY WARD_NAME'
+    );
+    return res.json({
+      wards: rows.map((w) => ({ ward_id: w.WARD_ID, council_id: w.COUNCIL_ID, ward_name: w.WARD_NAME })),
+    });
+  } catch (err) {
+    console.error('Wards error:', err);
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ---------- POST /register (citizens) ----------
 router.post('/register', async (req, res) => {
   try {
     const { full_name, nic, email, mobile_number, address, password, ward_id } = req.body || {};
@@ -89,13 +137,13 @@ router.post('/register', async (req, res) => {
     if (!Number.isInteger(wardId) || wardId <= 0) {
       return res.status(400).json({ message: 'Invalid ward_id' });
     }
-    if (password.length < 8 || Buffer.byteLength(password) > 72) {
+    if (!pwOk(password)) {
       return res.status(400).json({ message: 'Password must be 8 to 72 characters' });
     }
-    if (!/^(?:\+94|0)7\d{8}$/.test(mobile)) {
+    if (!MOBILE_RE.test(mobile)) {
       return res.status(400).json({ message: 'Invalid mobile number' });
     }
-    if (cleanEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+    if (cleanEmail && !EMAIL_RE.test(cleanEmail)) {
       return res.status(400).json({ message: 'Invalid email address' });
     }
     if (!isValidNic(validateNic(nic))) {
@@ -137,7 +185,7 @@ router.post('/register', async (req, res) => {
   }
 });
 
-// ---------- POST /login ----------
+// ---------- POST /login (citizens) ----------
 // Body: { identifier: "<email or NIC>", password: "..." }
 router.post('/login', async (req, res) => {
   const INVALID = { message: 'Invalid credentials' };
@@ -147,42 +195,44 @@ router.post('/login', async (req, res) => {
     if (!isStr(identifier) || !isStr(password) || !identifier.trim() || !password) {
       return res.status(400).json({ message: 'identifier and password are required' });
     }
-    // Same cap as registration; also stops huge inputs reaching bcrypt
     if (Buffer.byteLength(password) > 72) {
       return res.status(401).json(INVALID);
     }
 
     const id = identifier.trim();
+    const cols = 'CITIZEN_ID, WARD_ID, FULL_NAME, PASSWORD_HASH, IS_ACTIVE';
     let rows;
 
     if (id.includes('@')) {
-      [rows] = await pool.query(
-        `SELECT CITIZEN_ID, WARD_ID, FULL_NAME, PASSWORD_HASH FROM CITIZEN WHERE EMAIL = ?`,
-        [id.toLowerCase()]
-      );
+      [rows] = await pool.query(`SELECT ${cols} FROM CITIZEN WHERE EMAIL = ?`, [id.toLowerCase()]);
     } else {
       if (!isValidNic(validateNic(id))) {
         await bcrypt.compare(password, DUMMY_HASH); // keep timing similar
         return res.status(401).json(INVALID);
       }
-      [rows] = await pool.query(
-        `SELECT CITIZEN_ID, WARD_ID, FULL_NAME, PASSWORD_HASH FROM CITIZEN WHERE NIC_HASH = ?`,
-        [hashNIC(normalizeNic(id))]
-      );
+      [rows] = await pool.query(`SELECT ${cols} FROM CITIZEN WHERE NIC_HASH = ?`, [
+        hashNIC(normalizeNic(id)),
+      ]);
     }
 
     const citizen = rows[0];
     const ok = await bcrypt.compare(password, citizen ? citizen.PASSWORD_HASH : DUMMY_HASH);
-    if (!citizen || !ok) {
+    if (!citizen || !ok || !citizen.IS_ACTIVE) {
       return res.status(401).json(INVALID);
     }
 
     return res.json({
       message: 'Login successful',
-      token: signToken(citizen),
+      token: citizenToken(citizen),
       token_type: 'Bearer',
       expires_in: JWT_EXPIRES_IN,
-      citizen: { citizen_id: citizen.CITIZEN_ID, full_name: citizen.FULL_NAME, ward_id: citizen.WARD_ID },
+      user: {
+        id: citizen.CITIZEN_ID,
+        kind: 'citizen',
+        role: 'citizen',
+        full_name: citizen.FULL_NAME,
+        ward_id: citizen.WARD_ID,
+      },
     });
   } catch (err) {
     console.error('Login error:', err);
@@ -190,9 +240,55 @@ router.post('/login', async (req, res) => {
   }
 });
 
+// ---------- POST /officer/login ----------
+// Body: { identifier: "<email or employee ID>", password: "..." }
+router.post('/officer/login', async (req, res) => {
+  const INVALID = { message: 'Invalid credentials' };
+  try {
+    const { identifier, password } = req.body || {};
+
+    if (!isStr(identifier) || !isStr(password) || !identifier.trim() || !password) {
+      return res.status(400).json({ message: 'identifier and password are required' });
+    }
+    if (Buffer.byteLength(password) > 72) {
+      return res.status(401).json(INVALID);
+    }
+
+    const id = identifier.trim();
+    const [rows] = await pool.query(
+      `SELECT OFFICER_ID, COUNCIL_ID, WARD_ID, FULL_NAME, PASSWORD_HASH, ROLE, IS_ACTIVE
+         FROM OFFICER WHERE LOWER(EMAIL) = ? OR EMPLOYEE_ID = ?`,
+      [id.toLowerCase(), id]
+    );
+
+    const officer = rows[0];
+    const ok = await bcrypt.compare(password, officer ? officer.PASSWORD_HASH : DUMMY_HASH);
+    if (!officer || !ok || !officer.IS_ACTIVE) {
+      return res.status(401).json(INVALID);
+    }
+
+    return res.json({
+      message: 'Login successful',
+      token: officerToken(officer),
+      token_type: 'Bearer',
+      expires_in: JWT_EXPIRES_IN,
+      user: {
+        id: officer.OFFICER_ID,
+        kind: 'officer',
+        role: ROLE_SLUG[officer.ROLE],
+        full_name: officer.FULL_NAME,
+        ward_id: officer.WARD_ID,
+        council_id: officer.COUNCIL_ID,
+      },
+    });
+  } catch (err) {
+    console.error('Officer login error:', err);
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // ---------- POST /logout ----------
 // JWTs are stateless: the client must delete its stored token.
-// For true server-side revocation, add a token blocklist table and check it in `authenticate`.
 router.post('/logout', authenticate, (req, res) => {
   return res.json({ message: 'Logged out. Please discard your token on the client.' });
 });
@@ -200,26 +296,252 @@ router.post('/logout', authenticate, (req, res) => {
 // ---------- GET /me ----------
 router.get('/me', authenticate, async (req, res) => {
   try {
-    const [rows] = await pool.query(
-      'SELECT CITIZEN_ID, WARD_ID, FULL_NAME, EMAIL, MOBILE_NUMBER FROM CITIZEN WHERE CITIZEN_ID = ?',
-      [req.user.citizen_id]
-    );
-    if (rows.length === 0) {
-      return res.status(401).json({ message: 'Account no longer exists' });
+    if (req.user.kind === 'officer') {
+      const [rows] = await pool.query(
+        `SELECT o.OFFICER_ID, o.WARD_ID, o.COUNCIL_ID, o.EMPLOYEE_ID, o.FULL_NAME, o.EMAIL,
+                o.DEPARTMENT, o.ROLE, o.IS_ACTIVE, c.COUNCIL_NAME, w.WARD_NAME
+           FROM OFFICER o
+           JOIN COUNCIL c ON c.COUNCIL_ID = o.COUNCIL_ID
+           LEFT JOIN WARD w ON w.WARD_ID = o.WARD_ID
+          WHERE o.OFFICER_ID = ?`,
+        [req.user.id]
+      );
+      const o = rows[0];
+      if (!o || !o.IS_ACTIVE) {
+        return res.status(401).json({ message: 'Account no longer active' });
+      }
+      return res.json({
+        user: {
+          id: o.OFFICER_ID,
+          kind: 'officer',
+          role: ROLE_SLUG[o.ROLE],
+          full_name: o.FULL_NAME,
+          email: o.EMAIL,
+          employee_id: o.EMPLOYEE_ID,
+          department: o.DEPARTMENT,
+          ward_id: o.WARD_ID,
+          ward_name: o.WARD_NAME,
+          council_id: o.COUNCIL_ID,
+          council_name: o.COUNCIL_NAME,
+        },
+      });
     }
+
+    const [rows] = await pool.query(
+      `SELECT c.CITIZEN_ID, c.WARD_ID, c.FULL_NAME, c.EMAIL, c.MOBILE_NUMBER, c.ADDRESS,
+              c.CREDIBILITY_SCORE, c.CREATED_AT, c.IS_ACTIVE, w.WARD_NAME, w.COUNCIL_ID, co.COUNCIL_NAME
+         FROM CITIZEN c
+         JOIN WARD w ON w.WARD_ID = c.WARD_ID
+         JOIN COUNCIL co ON co.COUNCIL_ID = w.COUNCIL_ID
+        WHERE c.CITIZEN_ID = ?`,
+      [req.user.id]
+    );
     const c = rows[0];
+    if (!c || !c.IS_ACTIVE) {
+      return res.status(401).json({ message: 'Account no longer active' });
+    }
     return res.json({
-      citizen: {
-        citizen_id: c.CITIZEN_ID,
+      user: {
+        id: c.CITIZEN_ID,
+        kind: 'citizen',
+        role: 'citizen',
         full_name: c.FULL_NAME,
         email: c.EMAIL,
         mobile_number: c.MOBILE_NUMBER,
+        address: c.ADDRESS,
+        credibility_score: c.CREDIBILITY_SCORE,
+        created_at: c.CREATED_AT,
         ward_id: c.WARD_ID,
-        role: req.user.role,
+        ward_name: c.WARD_NAME,
+        council_name: c.COUNCIL_NAME,
       },
     });
   } catch (err) {
     console.error('Me error:', err);
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ---------- PATCH /me (citizens edit their own details) ----------
+router.patch('/me', authenticate, requireRole('citizen'), async (req, res) => {
+  try {
+    const { full_name, mobile_number, email, address, ward_id } = req.body || {};
+
+    if (!isStr(full_name) || !full_name.trim()) {
+      return res.status(400).json({ message: 'full_name is required' });
+    }
+    if (!isStr(mobile_number) || !MOBILE_RE.test(mobile_number.trim())) {
+      return res.status(400).json({ message: 'Invalid mobile number' });
+    }
+    const cleanEmail = isStr(email) && email.trim() ? email.trim().toLowerCase() : null;
+    if (cleanEmail && !EMAIL_RE.test(cleanEmail)) {
+      return res.status(400).json({ message: 'Invalid email address' });
+    }
+    const cleanAddress = isStr(address) && address.trim() ? address.trim() : null;
+
+    const [cur] = await pool.query('SELECT WARD_ID, IS_ACTIVE FROM CITIZEN WHERE CITIZEN_ID = ?', [req.user.id]);
+    if (!cur[0] || !cur[0].IS_ACTIVE) {
+      return res.status(403).json({ message: 'Account is not active' });
+    }
+
+    let wardId = cur[0].WARD_ID;
+    if (ward_id !== undefined && ward_id !== null && ward_id !== '') {
+      wardId = Number(ward_id);
+      if (!Number.isInteger(wardId) || wardId <= 0) {
+        return res.status(400).json({ message: 'Invalid ward_id' });
+      }
+      const [w] = await pool.query('SELECT WARD_ID FROM WARD WHERE WARD_ID = ?', [wardId]);
+      if (w.length === 0) {
+        return res.status(400).json({ message: 'Selected ward does not exist' });
+      }
+    }
+
+    const name = full_name.trim();
+    await pool.query(
+      `UPDATE CITIZEN SET FULL_NAME = ?, MOBILE_NUMBER = ?, EMAIL = ?, ADDRESS = ?, WARD_ID = ?
+        WHERE CITIZEN_ID = ?`,
+      [name, mobile_number.trim(), cleanEmail, cleanAddress, wardId, req.user.id]
+    );
+
+    // The token carries ward_id, so issue a fresh one
+    return res.json({
+      message: 'Profile updated',
+      token: citizenToken({ CITIZEN_ID: req.user.id, WARD_ID: wardId }),
+      user: { id: req.user.id, kind: 'citizen', role: 'citizen', full_name: name, ward_id: wardId },
+    });
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ message: 'An account with this email already exists' });
+    }
+    console.error('Update profile error:', err);
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Wrong current password returns 400 on purpose: the client treats any 401 as "session expired".
+const ownerTable = (req) =>
+  req.user.kind === 'officer' ? { t: 'OFFICER', id: 'OFFICER_ID' } : { t: 'CITIZEN', id: 'CITIZEN_ID' };
+
+// ---------- POST /me/password (citizens and officers) ----------
+router.post('/me/password', authenticate, async (req, res) => {
+  try {
+    const { current_password, new_password } = req.body || {};
+    if (!isStr(current_password) || !isStr(new_password)) {
+      return res.status(400).json({ message: 'current_password and new_password are required' });
+    }
+    if (!pwOk(new_password)) {
+      return res.status(400).json({ message: 'Password must be 8 to 72 characters' });
+    }
+
+    const { t, id } = ownerTable(req);
+    const [rows] = await pool.query(`SELECT PASSWORD_HASH, IS_ACTIVE FROM ${t} WHERE ${id} = ?`, [req.user.id]);
+    const u = rows[0];
+    if (!u || !u.IS_ACTIVE) {
+      return res.status(403).json({ message: 'Account is not active' });
+    }
+
+    const ok = Buffer.byteLength(current_password) <= 72 && (await bcrypt.compare(current_password, u.PASSWORD_HASH));
+    if (!ok) {
+      return res.status(400).json({ message: 'Current password is incorrect' });
+    }
+    if (current_password === new_password) {
+      return res.status(400).json({ message: 'New password must be different from the current one' });
+    }
+
+    const hash = await bcrypt.hash(new_password, SALT_ROUNDS);
+    await pool.query(`UPDATE ${t} SET PASSWORD_HASH = ? WHERE ${id} = ?`, [hash, req.user.id]);
+    return res.json({ message: 'Password updated' });
+  } catch (err) {
+    console.error('Change password error:', err);
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ---------- POST /me/deactivate (citizens, needs the password) ----------
+router.post('/me/deactivate', authenticate, requireRole('citizen'), async (req, res) => {
+  try {
+    const { password } = req.body || {};
+    if (!isStr(password) || !password) {
+      return res.status(400).json({ message: 'password is required' });
+    }
+
+    const [rows] = await pool.query('SELECT PASSWORD_HASH, IS_ACTIVE FROM CITIZEN WHERE CITIZEN_ID = ?', [req.user.id]);
+    const u = rows[0];
+    if (!u || !u.IS_ACTIVE) {
+      return res.status(403).json({ message: 'Account is not active' });
+    }
+
+    const ok = Buffer.byteLength(password) <= 72 && (await bcrypt.compare(password, u.PASSWORD_HASH));
+    if (!ok) {
+      return res.status(400).json({ message: 'Password is incorrect' });
+    }
+
+    await pool.query('UPDATE CITIZEN SET IS_ACTIVE = 0 WHERE CITIZEN_ID = ?', [req.user.id]);
+    return res.json({ message: 'Account deactivated' });
+  } catch (err) {
+    console.error('Deactivate error:', err);
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ---------- POST /officers (admin only) ----------
+// Body: { employee_id, full_name, email, password, role, council_id, ward_id?, department? }
+router.post('/officers', authenticate, requireRole('admin'), async (req, res) => {
+  try {
+    const { employee_id, full_name, email, password, role, council_id, ward_id, department } =
+      req.body || {};
+
+    if (![employee_id, full_name, email, password, role].every(isStr) || !council_id) {
+      return res.status(400).json({
+        message: 'employee_id, full_name, email, password, role and council_id are required',
+      });
+    }
+    if (!OFFICER_ENUMS.includes(role)) {
+      return res.status(400).json({ message: `role must be one of: ${OFFICER_ENUMS.join(', ')}` });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const councilId = Number(council_id);
+    const wardId = ward_id ? Number(ward_id) : null;
+
+    if (!EMAIL_RE.test(cleanEmail)) {
+      return res.status(400).json({ message: 'Invalid email address' });
+    }
+    if (!Number.isInteger(councilId) || councilId <= 0 || (ward_id && !Number.isInteger(wardId))) {
+      return res.status(400).json({ message: 'Invalid council_id or ward_id' });
+    }
+    if (!pwOk(password)) {
+      return res.status(400).json({ message: 'Password must be 8 to 72 characters' });
+    }
+
+    const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+    const [result] = await pool.query(
+      `INSERT INTO OFFICER (COUNCIL_ID, WARD_ID, EMPLOYEE_ID, FULL_NAME, EMAIL, PASSWORD_HASH, DEPARTMENT, ROLE)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        councilId,
+        wardId,
+        employee_id.trim(),
+        full_name.trim(),
+        cleanEmail,
+        passwordHash,
+        isStr(department) && department.trim() ? department.trim() : null,
+        role,
+      ]
+    );
+
+    return res.status(201).json({
+      message: 'Officer created',
+      officer: { officer_id: result.insertId, full_name: full_name.trim(), role: ROLE_SLUG[role] },
+    });
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ message: 'An officer with this employee ID or email already exists' });
+    }
+    if (err.code === 'ER_NO_REFERENCED_ROW_2') {
+      return res.status(400).json({ message: 'council_id or ward_id does not exist' });
+    }
+    console.error('Create officer error:', err);
     return res.status(500).json({ message: 'Server error' });
   }
 });
