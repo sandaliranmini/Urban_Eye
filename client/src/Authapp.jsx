@@ -8,6 +8,7 @@
 import { createContext, useCallback, useContext, useEffect, useId, useMemo, useState } from 'react';
 import { Link, Navigate, useLocation } from 'react-router-dom';
 import WardSelect from './components/WardSelect';
+import ReportIssue from './pages/ReportIssue';
 
 // ---------------------------------------------------------------- config
 const API = 'http://localhost:5000/api/auth'; // change for deployment
@@ -459,7 +460,7 @@ function Dashboard({ keys }) {
           ))}
         </nav>
         <main className="content">
-          {!canOpen(role, page) ? <Forbidden /> : page === 'home' ? <Home role={role} go={setPage} /> : page === 'profile' ? <Profile /> : page === 'addOfficer' ? <AddOfficer /> : <Placeholder title={PAGES[page].label} />}
+          {!canOpen(role, page) ? <Forbidden /> : page === 'home' ? <Home role={role} go={setPage} />:page === 'report' ? <ReportIssue defaultWardId={user.ward_id || ''} /> : page === 'profile' ? <Profile /> : page === 'profile' ? <Profile /> : page === 'addOfficer' ? <AddOfficer /> : <Placeholder title={PAGES[page].label} />}
         </main>
       </div>
     </div>
