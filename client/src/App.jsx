@@ -8,6 +8,7 @@ import {
   OfficerDashboard,
   AdminDashboard,
 } from './AuthApp';
+import Landing from './pages/Landing';
 
 // Placeholder pages (to be built later)
 const IssueDetail = () => <div className="p-8 text-2xl">Issue Detail Page</div>;
@@ -19,7 +20,7 @@ function App() {
       <AuthProvider>
         <Routes>
           {/* Public routes */}
-          <Route path="/" element={<Navigate to="/login" replace />} />
+          <Route path="/" element={<Landing />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/issue/:id" element={<IssueDetail />} />
