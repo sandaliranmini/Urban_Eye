@@ -14,7 +14,7 @@ process.on('unhandledRejection', (reason) => {
 });
 process.on('uncaughtException', (err) => {
   console.error('[uncaughtException]', err);
-  process.exit(1); // the process is in an unknown state, so let nodemon or Railway restart it
+  process.exit(1);
 });
 
 // Middleware
@@ -22,42 +22,35 @@ app.use(helmet());
 app.use(cors());
 app.use(express.json());
 app.use(morgan('dev'));
+
+// API Routes
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/wards', require('./routes/wards'));
 app.use('/api/issues', require('./routes/issueRoutes'));
-
-const { notFound, errorHandler } = require('./middleware/errorMiddleware');
-app.use(notFound);
-app.use(errorHandler);
+app.use('/api/resolutions', require('./routes/resolutionRoutes'));
+app.use('/api/audit-logs', require('./routes/auditRoutes'));
 
 app.get('/api/health', async (req, res) => {
   try {
     await db.query('SELECT 1');
     res.json({ status: 'ok', db: 'connected' });
-  }catch (err) {
+  } catch (err) {
     console.error('Health check error:', err);
     res.status(500).json({ status: 'error', code: err.code, message: err.message });
   }
 });
 
-app.get('/api/wards', async (req, res) => {
-  try {
-    const [rows] = await db.query(
-      'SELECT WARD_ID, COUNCIL_ID, WARD_NAME FROM WARD ORDER BY WARD_NAME'
-    );
-    res.json(rows);
-  } catch (err) {
-    console.error('Wards error:', err);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
+// 404 & Error handlers (must come AFTER all routes)
+const { notFound, errorHandler } = require('./middleware/errorMiddleware');
+app.use(notFound);
+app.use(errorHandler);
 
-// Start server (listen once; start the cron job after the port is bound)
+// Start server
 const PORT = process.env.PORT || 5000;
 const server = http.createServer(app);              
 initSocket(server);                                
 
-server.listen(PORT, () => {                           // CHANGED: server.listen instead of app.listen
+server.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
   startAutoCloseJob();
 });
