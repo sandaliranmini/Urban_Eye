@@ -48,3 +48,14 @@ export const getIssueAnalytics = async (filters = {}) => {
   const response = await axiosInstance.get('/admin/analytics/issues', { params: filters });
   return response.data;
 };
+
+// Audit Trail & Logging
+export const getAuditLogs = async (filters = {}) => {
+  const response = await axiosInstance.get('/audit-logs', { params: filters });
+  return response.data;
+};
+
+export const getAuditStats = async (filters = {}) => {
+  const response = await axiosInstance.get('/audit-logs/stats', { params: filters });
+  return response.data;
+};

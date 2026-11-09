@@ -6,31 +6,26 @@ const db = require('../config/db');
  * Data-access layer for the REPORT_VERIFICATION table.
  *
  * Flow:
- *   1. Officer uploads RESOLUTION_PROOF  -> create() opens a 'Pending' verification
+ *   1. Officer uploads RESOLUTION_PROOF  -> create() opens a 'Pending' verification (14 days)
  *   2. Reporter responds                 -> confirm() or dispute()
- *   3. Reporter stays silent             -> cron sends reminders, then autoClose()
+ *   3. Reporter stays silent             -> cron sends reminders (7 and 13 days), then autoClose() (14 days)
  *
  * Every method takes an optional `conn` as its last argument. Pass a connection
  * from `db.getConnection()` (inside a transaction) when the call must succeed or
  * fail together with other writes, e.g. updating ISSUE.STATUS. Without it, the
  * shared pool is used.
- *
- * NOTE: this model only touches REPORT_VERIFICATION. Changing ISSUE.STATUS,
- * CLOSURE_TYPE, CLOSED_AT or the reporter's CREDIBILITY_SCORE is the caller's
- * job (controller / cron), ideally in the same transaction.
  */
 
 const RESPONSE = Object.freeze({
   PENDING: 'Pending',
   CONFIRMED: 'Confirmed',
   DISPUTED: 'Disputed',
-  AUTO_CLOSED: 'auto_closed', // lower-case in schema.sql
+  AUTO_CLOSED: 'auto_closed',
 });
 
 const DEFAULT_DEADLINE_DAYS = parseInt(process.env.AUTO_CLOSE_DAYS, 10) || 14;
 
-// Maps the reminder "day" to its flag column. Whitelisted so a column name can
-// never come from user input.
+// Maps the reminder "day" to its flag column. Whitelisted to prevent SQL injection.
 const REMINDER_COLUMNS = Object.freeze({
   7: 'REMINDER_7D_SENT',
   13: 'REMINDER_13D_SENT',
@@ -63,7 +58,22 @@ class ReporterVerification {
 
   static async findById(id, conn) {
     const [rows] = await exec(conn).query(
-      'SELECT * FROM REPORT_VERIFICATION WHERE VERIFICATION_ID = ?',
+      `SELECT v.*,
+              i.TITLE        AS ISSUE_TITLE,
+              i.BEFORE_PHOTO AS BEFORE_PHOTO,
+              i.STATUS       AS ISSUE_STATUS,
+              w.WARD_NAME,
+              p.AFTER_PHOTO  AS AFTER_PHOTO,
+              p.REMARKS      AS OFFICER_REMARKS,
+              p.SUBMITTED_AT AS PROOF_SUBMITTED_AT,
+              c.FULL_NAME    AS REPORTER_NAME,
+              c.EMAIL        AS REPORTER_EMAIL
+         FROM REPORT_VERIFICATION v
+         JOIN ISSUE i            ON i.ISSUE_ID = v.ISSUE_ID
+         LEFT JOIN WARD w        ON w.WARD_ID = i.WARD_ID
+         LEFT JOIN RESOLUTION_PROOF p ON p.PROOF_ID = v.PROOF_ID
+         LEFT JOIN CITIZEN c     ON c.CITIZEN_ID = v.REPORTER_ID
+        WHERE v.VERIFICATION_ID = ?`,
       [id]
     );
     return rows[0] || null;
@@ -80,9 +90,14 @@ class ReporterVerification {
   /** All verification rounds for an issue, newest first (an issue can be disputed and re-resolved). */
   static async findByIssue(issueId, conn) {
     const [rows] = await exec(conn).query(
-      `SELECT * FROM REPORT_VERIFICATION
-        WHERE ISSUE_ID = ?
-        ORDER BY CREATED_AT DESC, VERIFICATION_ID DESC`,
+      `SELECT v.*,
+              p.AFTER_PHOTO,
+              p.REMARKS AS OFFICER_REMARKS,
+              p.SUBMITTED_AT AS PROOF_SUBMITTED_AT
+         FROM REPORT_VERIFICATION v
+         LEFT JOIN RESOLUTION_PROOF p ON p.PROOF_ID = v.PROOF_ID
+        WHERE v.ISSUE_ID = ?
+        ORDER BY v.CREATED_AT DESC, v.VERIFICATION_ID DESC`,
       [issueId]
     );
     return rows;
@@ -91,9 +106,14 @@ class ReporterVerification {
   /** The currently open verification for an issue, if any. */
   static async findPendingByIssue(issueId, conn) {
     const [rows] = await exec(conn).query(
-      `SELECT * FROM REPORT_VERIFICATION
-        WHERE ISSUE_ID = ? AND RESPONSE = 'Pending'
-        ORDER BY CREATED_AT DESC, VERIFICATION_ID DESC
+      `SELECT v.*,
+              p.AFTER_PHOTO,
+              p.REMARKS AS OFFICER_REMARKS,
+              p.SUBMITTED_AT AS PROOF_SUBMITTED_AT
+         FROM REPORT_VERIFICATION v
+         LEFT JOIN RESOLUTION_PROOF p ON p.PROOF_ID = v.PROOF_ID
+        WHERE v.ISSUE_ID = ? AND v.RESPONSE = 'Pending'
+        ORDER BY v.CREATED_AT DESC, v.VERIFICATION_ID DESC
         LIMIT 1`,
       [issueId]
     );
@@ -109,11 +129,13 @@ class ReporterVerification {
       `SELECT v.*,
               i.TITLE        AS ISSUE_TITLE,
               i.BEFORE_PHOTO AS BEFORE_PHOTO,
+              w.WARD_NAME,
               p.AFTER_PHOTO  AS AFTER_PHOTO,
               p.REMARKS      AS OFFICER_REMARKS,
               p.SUBMITTED_AT AS PROOF_SUBMITTED_AT
          FROM REPORT_VERIFICATION v
          JOIN ISSUE i            ON i.ISSUE_ID = v.ISSUE_ID
+         LEFT JOIN WARD w        ON w.WARD_ID = i.WARD_ID
          JOIN RESOLUTION_PROOF p ON p.PROOF_ID = v.PROOF_ID
         WHERE v.REPORTER_ID = ? AND v.RESPONSE = 'Pending'
         ORDER BY v.DEADLINE_AT ASC`,
@@ -158,15 +180,21 @@ class ReporterVerification {
   // ------------------------------------------------------------------ cron
 
   /**
-   * Pending verifications whose deadline has passed.
+   * Pending verifications whose deadline has passed (14 days).
    * Uses IDX_VERIFICATION_CRON (RESPONSE, DEADLINE_AT).
-   * Returns ISSUE_ID/REPORTER_ID so the caller can close each issue.
+   * Returns joined issue, citizen, and ward details so notifications and closing succeed.
    */
   static async findExpired(conn) {
     const [rows] = await exec(conn).query(
-      `SELECT VERIFICATION_ID, ISSUE_ID, PROOF_ID, REPORTER_ID, DEADLINE_AT
-         FROM REPORT_VERIFICATION
-        WHERE RESPONSE = 'Pending' AND DEADLINE_AT <= NOW()`
+      `SELECT v.VERIFICATION_ID, v.ISSUE_ID, v.PROOF_ID, v.REPORTER_ID, v.DEADLINE_AT,
+              i.TITLE AS ISSUE_TITLE, i.WARD_ID,
+              w.WARD_NAME,
+              c.FULL_NAME AS REPORTER_NAME, c.EMAIL AS REPORTER_EMAIL, c.IS_ACTIVE AS REPORTER_ACTIVE
+         FROM REPORT_VERIFICATION v
+         JOIN ISSUE i ON i.ISSUE_ID = v.ISSUE_ID
+         JOIN CITIZEN c ON c.CITIZEN_ID = v.REPORTER_ID
+         LEFT JOIN WARD w ON w.WARD_ID = i.WARD_ID
+        WHERE v.RESPONSE = 'Pending' AND v.DEADLINE_AT <= NOW()`
     );
     return rows;
   }
@@ -189,21 +217,27 @@ class ReporterVerification {
   /**
    * Pending verifications that are due a reminder and haven't had it yet.
    * `day` must be 7 or 13 (matches REMINDER_7D_SENT / REMINDER_13D_SENT).
-   * Reminders are keyed off the age of the request, so a missed cron run is
-   * caught up on the next run instead of being skipped (the sent-flag prevents
-   * duplicates). Rows past their deadline are excluded; autoClose handles those.
+   * Returns joined issue, citizen, ward, and proof details for the reminder notification.
    */
   static async findDueForReminder(day, conn) {
     const column = REMINDER_COLUMNS[day];
     if (!column) throw new Error(`Unsupported reminder day: ${day} (use 7 or 13)`);
 
     const [rows] = await exec(conn).query(
-      `SELECT VERIFICATION_ID, ISSUE_ID, REPORTER_ID, DEADLINE_AT
-         FROM REPORT_VERIFICATION
-        WHERE RESPONSE = 'Pending'
-          AND ${column} = 0
-          AND CREATED_AT <= DATE_SUB(NOW(), INTERVAL ? DAY)
-          AND DEADLINE_AT > NOW()`,
+      `SELECT v.VERIFICATION_ID, v.ISSUE_ID, v.PROOF_ID, v.REPORTER_ID, v.DEADLINE_AT, v.CREATED_AT AS VERIFICATION_CREATED_AT,
+              i.TITLE AS ISSUE_TITLE, i.WARD_ID, i.BEFORE_PHOTO,
+              w.WARD_NAME,
+              c.FULL_NAME AS REPORTER_NAME, c.EMAIL AS REPORTER_EMAIL, c.IS_ACTIVE AS REPORTER_ACTIVE,
+              p.AFTER_PHOTO, p.REMARKS AS OFFICER_REMARKS
+         FROM REPORT_VERIFICATION v
+         JOIN ISSUE i ON i.ISSUE_ID = v.ISSUE_ID
+         JOIN CITIZEN c ON c.CITIZEN_ID = v.REPORTER_ID
+         LEFT JOIN WARD w ON w.WARD_ID = i.WARD_ID
+         LEFT JOIN RESOLUTION_PROOF p ON p.PROOF_ID = v.PROOF_ID
+        WHERE v.RESPONSE = 'Pending'
+          AND v.${column} = 0
+          AND v.CREATED_AT <= DATE_SUB(NOW(), INTERVAL ? DAY)
+          AND v.DEADLINE_AT > NOW()`,
       [day]
     );
     return rows;
@@ -223,5 +257,6 @@ class ReporterVerification {
 }
 
 ReporterVerification.RESPONSE = RESPONSE;
+ReporterVerification.DEFAULT_DEADLINE_DAYS = DEFAULT_DEADLINE_DAYS;
 
 module.exports = ReporterVerification;

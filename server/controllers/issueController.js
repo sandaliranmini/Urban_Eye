@@ -2,6 +2,7 @@ const Issue = require('../models/Issue');
 const { uploadImage } = require('../services/storageService');
 const { findSimilar } = require('../utils/similarity');
 const { notifyStatusChange } = require('../services/notificationService');
+const AuditService = require('../services/auditService');
 const { AppError } = require('../middleware/errorMiddleware');
 
 const CATEGORIES = ['Road Hazard', 'Water Drainage', 'Waste Management', 'Street Lighting', 'Other'];
@@ -42,16 +43,28 @@ exports.createIssue = async (req, res) => {
     throw new AppError('A photo is required', 400);
   }
 
+  const citizenId = currentCitizenId(req);
   let issueId;
   try {
     issueId = await Issue.create({
-      citizen_id: currentCitizenId(req),
+      citizen_id: citizenId,
       ward_id: wardId,
       title,
       description,
       category,
       before_photo: beforePhoto,
       is_emergency: isEmergency,
+    });
+
+    // Record audit trail entry for issue creation
+    await AuditService.logIssueCreated({
+      issueId,
+      citizenId,
+      title,
+      category,
+      wardId,
+      isEmergency,
+      req,
     });
   } catch (err) {
     if (err.code === 'ER_NO_REFERENCED_ROW_2') throw new AppError('Ward or citizen does not exist', 400);
@@ -137,6 +150,17 @@ exports.updateStatus = async (req, res) => {
   }
 
   await Issue.update(id, { status: 'In Progress' });
+
+  // Record in audit log
+  await AuditService.logStatusChange({
+    issueId: id,
+    oldStatus: issue.STATUS,
+    newStatus: 'In Progress',
+    user: req.user,
+    req,
+    note: body.notes ? String(body.notes).slice(0, 500) : undefined,
+  });
+
   // fire and forget: an email problem must never fail the request
   notifyStatusChange(id, issue.STATUS, 'In Progress', {
     note: body.notes ? String(body.notes).slice(0, 500) : undefined,
