@@ -34,6 +34,32 @@ export const uploadResolutionProof = async (id, formData) => {
   return response.data;
 };
 
+export const confirmResolution = async (id, remarks) => {
+  const response = await axiosInstance.post(`/issues/${id}/verify/confirm`, {
+    remarks,
+  });
+  return response.data;
+};
+
+export const disputeResolution = async (id, formData) => {
+  const response = await axiosInstance.post(
+    `/issues/${id}/verify/dispute`,
+    formData,
+    { headers: { 'Content-Type': 'multipart/form-data' } }
+  );
+  return response.data;
+};
+
+export const getIssueVerification = async (id) => {
+  const response = await axiosInstance.get(`/issues/${id}/verification`);
+  return response.data;
+};
+
+export const getIssueAuditLogs = async (id) => {
+  const response = await axiosInstance.get(`/audit-logs/issue/${id}`);
+  return response.data;
+};
+
 export const getIssuesByWard = async (wardId) => {
   const response = await axiosInstance.get(`/issues/ward/${wardId}`);
   return response.data;
