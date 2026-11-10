@@ -11,6 +11,10 @@
 //   POST  /api/auth/me/password      change own password (citizen or officer)
 //   POST  /api/auth/me/deactivate    citizen deactivates own account (needs password)
 //   POST  /api/auth/officers         admin only: create an officer account
+// PASSWORD RESET (public)
+//   POST  /api/auth/forgot-password        email a reset link (same reply whether or not the email exists)
+//   GET   /api/auth/reset-password/check   is a reset link still usable?
+//   POST  /api/auth/reset-password         set a new password with a valid token
 // Exports: router (default), router.authenticate, router.requireRole
 // Roles in the token: citizen | field_officer | supervisor | admin
 
@@ -18,6 +22,7 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
+const nodemailer = require('nodemailer');
 const pool = require('../config/db');
 const { validateNic, normalizeNic } = require('../utils/nicValidator');
 
@@ -31,6 +36,37 @@ if (!process.env.JWT_SECRET) {
 const router = express.Router();
 const SALT_ROUNDS = 12;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '1h';
+
+// ---------- Password reset: config + email ----------
+const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:3000';
+const RESET_MINUTES = 30;
+const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
+const esc = (s) =>
+  String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+const mailer = process.env.SMTP_HOST
+  ? nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT) || 587,
+      secure: Number(process.env.SMTP_PORT) === 465,
+      auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined,
+    })
+  : null;
+
+// With no SMTP settings in .env, the link is printed in the server terminal instead of emailed
+async function sendResetEmail(to, name, link) {
+  if (!mailer) {
+    console.log(`[mail disabled] Password reset link for ${to}: ${link}`);
+    return;
+  }
+  await mailer.sendMail({
+    from: process.env.MAIL_FROM || 'Urban Eye <no-reply@urbaneye.local>',
+    to,
+    subject: 'Reset your Urban Eye password',
+    text: `Hello ${name},\n\nUse this link to reset your password. It expires in ${RESET_MINUTES} minutes:\n${link}\n\nIf you did not ask for this, you can ignore this email.`,
+    html: `<p>Hello ${esc(name)},</p><p>Use the button below to reset your password. The link expires in ${RESET_MINUTES} minutes.</p><p><a href="${esc(link)}" style="display:inline-block;padding:12px 20px;background:#17324D;color:#fff;border-radius:8px;text-decoration:none;font-weight:600">Reset password</a></p><p>If you did not ask for this, you can ignore this email.</p>`,
+  });
+}
 
 // OFFICER.ROLE enum value -> role name used in tokens and requireRole()
 const ROLE_SLUG = { 'Field Officer': 'field_officer', Supervisor: 'supervisor', Admin: 'admin' };
@@ -542,6 +578,102 @@ router.post('/officers', authenticate, requireRole('admin'), async (req, res) =>
       return res.status(400).json({ message: 'council_id or ward_id does not exist' });
     }
     console.error('Create officer error:', err);
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ---------- POST /forgot-password ----------
+// Always answers the same way, so nobody can use it to find out who has an account.
+router.post('/forgot-password', async (req, res) => {
+  const GENERIC = { message: 'If an account exists for that email, we have sent a reset link.' };
+  const { email } = req.body || {};
+  if (!isStr(email) || !EMAIL_RE.test(email.trim())) {
+    return res.status(400).json({ message: 'Enter a valid email address' });
+  }
+  try {
+    const clean = email.trim().toLowerCase();
+    const [c] = await pool.query('SELECT CITIZEN_ID AS id, FULL_NAME FROM CITIZEN WHERE EMAIL = ? AND IS_ACTIVE = 1', [clean]);
+    const [o] = await pool.query('SELECT OFFICER_ID AS id, FULL_NAME FROM OFFICER WHERE LOWER(EMAIL) = ? AND IS_ACTIVE = 1', [clean]);
+    const targets = [
+      ...c.map((r) => ({ type: 'citizen', id: r.id, name: r.FULL_NAME })),
+      ...o.map((r) => ({ type: 'officer', id: r.id, name: r.FULL_NAME })),
+    ];
+
+    for (const t of targets) {
+      // At most 3 reset requests per account per hour
+      const [recent] = await pool.query(
+        `SELECT COUNT(*) AS n FROM PASSWORD_RESET
+          WHERE ACCOUNT_TYPE = ? AND ACCOUNT_ID = ? AND CREATED_AT > DATE_SUB(NOW(), INTERVAL 1 HOUR)`,
+        [t.type, t.id]
+      );
+      if (recent[0].n >= 3) continue;
+
+      const token = crypto.randomBytes(32).toString('hex');
+      await pool.query(
+        `INSERT INTO PASSWORD_RESET (ACCOUNT_TYPE, ACCOUNT_ID, TOKEN_HASH, EXPIRES_AT)
+         VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL ? MINUTE))`,
+        [t.type, t.id, sha256(token), RESET_MINUTES]
+      );
+      await sendResetEmail(clean, t.name, `${CLIENT_URL}/reset-password?token=${token}`);
+    }
+  } catch (err) {
+    console.error('Forgot password error:', err); // logged, never shown to the caller
+  }
+  return res.json(GENERIC);
+});
+
+// ---------- GET /reset-password/check?token=... (is the link still usable?) ----------
+const BAD_LINK = { message: 'This reset link is invalid or has expired' };
+router.get('/reset-password/check', async (req, res) => {
+  try {
+    const token = req.query.token;
+    if (!isStr(token) || !/^[a-f0-9]{64}$/.test(token)) return res.status(400).json(BAD_LINK);
+    const [rows] = await pool.query(
+      'SELECT RESET_ID FROM PASSWORD_RESET WHERE TOKEN_HASH = ? AND USED_AT IS NULL AND EXPIRES_AT > NOW()',
+      [sha256(token)]
+    );
+    return rows.length ? res.json({ valid: true }) : res.status(400).json(BAD_LINK);
+  } catch (err) {
+    console.error('Reset check error:', err);
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ---------- POST /reset-password ----------
+router.post('/reset-password', async (req, res) => {
+  try {
+    const { token, new_password } = req.body || {};
+    if (!isStr(token) || !/^[a-f0-9]{64}$/.test(token)) return res.status(400).json(BAD_LINK);
+    if (!pwOk(new_password)) {
+      return res.status(400).json({ message: 'Password must be 8 to 72 characters' });
+    }
+
+    const [rows] = await pool.query(
+      `SELECT RESET_ID, ACCOUNT_TYPE, ACCOUNT_ID FROM PASSWORD_RESET
+        WHERE TOKEN_HASH = ? AND USED_AT IS NULL AND EXPIRES_AT > NOW()`,
+      [sha256(token)]
+    );
+    const r = rows[0];
+    if (!r) return res.status(400).json(BAD_LINK);
+
+    // Claim the token first, so two requests can't both use it
+    const [claim] = await pool.query('UPDATE PASSWORD_RESET SET USED_AT = NOW() WHERE RESET_ID = ? AND USED_AT IS NULL', [r.RESET_ID]);
+    if (claim.affectedRows !== 1) return res.status(400).json(BAD_LINK);
+
+    const { t, id } = r.ACCOUNT_TYPE === 'officer'
+      ? { t: 'OFFICER', id: 'OFFICER_ID' }
+      : { t: 'CITIZEN', id: 'CITIZEN_ID' };
+    const hash = await bcrypt.hash(new_password, SALT_ROUNDS);
+    await pool.query(`UPDATE ${t} SET PASSWORD_HASH = ? WHERE ${id} = ?`, [hash, r.ACCOUNT_ID]);
+
+    // Any other open reset links for this account stop working
+    await pool.query(
+      'UPDATE PASSWORD_RESET SET USED_AT = NOW() WHERE ACCOUNT_TYPE = ? AND ACCOUNT_ID = ? AND USED_AT IS NULL',
+      [r.ACCOUNT_TYPE, r.ACCOUNT_ID]
+    );
+    return res.json({ message: 'Password updated' });
+  } catch (err) {
+    console.error('Reset password error:', err);
     return res.status(500).json({ message: 'Server error' });
   }
 });
