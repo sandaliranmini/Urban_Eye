@@ -4,6 +4,8 @@ import {
   ProtectedRoute,
   LoginPage,
   RegisterPage,
+  ForgotPasswordPage,
+  ResetPasswordPage,
   CitizenDashboard,
   OfficerDashboard,
   AdminDashboard,
@@ -22,6 +24,8 @@ function App() {
           <Route path="/" element={<Navigate to="/login" replace />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/issue/:id" element={<IssueDetail />} />
 
           {/* Protected routes */}

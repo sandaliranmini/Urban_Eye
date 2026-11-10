@@ -6,7 +6,7 @@
 // NOTE: the role checks here only hide pages. The server enforces the real rules (requireRole).
 
 import { createContext, useCallback, useContext, useEffect, useId, useMemo, useState } from 'react';
-import { Link, Navigate, useLocation } from 'react-router-dom';
+import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom';
 import WardSelect from './components/WardSelect';
 import ReportIssue from './pages/ReportIssue';
 
@@ -334,6 +334,9 @@ function LoginCard() {
         autoComplete="username"
       />
       <PasswordField label="Password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
+              <div style={{ textAlign: 'right', marginTop: -8 }}>
+        <Link className="link-btn" to="/forgot-password">Forgot password?</Link>
+      </div>
       <button className="btn" type="submit" disabled={busy}>{busy ? 'Logging in…' : 'Log in'}</button>
       {kind === 'citizen' ? (
         <p className="foot">
@@ -588,6 +591,161 @@ function AddOfficer() {
         <Field label="Department (optional)" value={f.department} onChange={set('department')} placeholder="e.g. Sanitation" />
       </div>
       <button className="btn fit" type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create officer'}</button>
+    </form>
+  );
+}
+// ---------------------------------------------------------------- password reset
+export function ForgotPasswordPage() {
+  return (
+    <SplitLayout>
+      <ForgotCard />
+    </SplitLayout>
+  );
+}
+
+function ForgotCard() {
+  const [email, setEmail] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [wait, setWait] = useState(0);
+
+  useEffect(() => {
+    if (wait <= 0) return undefined;
+    const t = setTimeout(() => setWait((w) => w - 1), 1000);
+    return () => clearTimeout(t);
+  }, [wait]);
+
+  const submit = async (e) => {
+    if (e) e.preventDefault();
+    setError('');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setError('Enter a valid email address');
+      return;
+    }
+    setBusy(true);
+    try {
+      await request('/forgot-password', { method: 'POST', body: { email: email.trim() } });
+      setSent(true);
+      setWait(60);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (sent) {
+    return (
+      <div className="card narrow">
+        <h1>Check your email</h1>
+        <p className="sub">
+          If an account exists for <strong>{email.trim()}</strong>, we have sent a link to reset your password.
+          It expires in 30 minutes.
+        </p>
+        <button className="btn-outline" type="button" disabled={wait > 0 || busy} onClick={submit}>
+          {wait > 0 ? `Resend in ${wait}s` : 'Resend link'}
+        </button>
+        <p className="foot"><Link className="link-btn" to="/login">Back to login</Link></p>
+      </div>
+    );
+  }
+
+  return (
+    <form className="card narrow" onSubmit={submit} noValidate>
+      <div>
+        <h1>Forgot your password?</h1>
+        <p className="sub">Enter your account email and we will send you a link to reset it.</p>
+      </div>
+      <Alert>{error}</Alert>
+      <Field label="Email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" />
+      <button className="btn" type="submit" disabled={busy}>{busy ? 'Sending…' : 'Send reset link'}</button>
+      <p className="foot"><Link className="link-btn" to="/login">Back to login</Link></p>
+    </form>
+  );
+}
+
+export function ResetPasswordPage() {
+  const [params] = useSearchParams();
+  return (
+    <SplitLayout>
+      <ResetCard token={params.get('token') || ''} />
+    </SplitLayout>
+  );
+}
+
+function ResetCard({ token }) {
+  const [state, setState] = useState('checking'); // checking | ready | invalid | done
+  const [pw, setPw] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [errors, setErrors] = useState({});
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const n = pw ? strength(pw) : 0;
+
+  useEffect(() => {
+    request(`/reset-password/check?token=${encodeURIComponent(token)}`)
+      .then(() => setState('ready'))
+      .catch(() => setState('invalid'));
+  }, [token]);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError('');
+    const er = {};
+    if (pw.length < 8 || new TextEncoder().encode(pw).length > 72) er.pw = 'Password must be 8 to 72 characters';
+    if (confirm !== pw) er.confirm = 'Passwords do not match';
+    setErrors(er);
+    if (Object.keys(er).length) return;
+    setBusy(true);
+    try {
+      await request('/reset-password', { method: 'POST', body: { token, new_password: pw } });
+      setState('done');
+    } catch (err) {
+      if (err.message.includes('invalid or has expired')) setState('invalid');
+      else setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (state === 'checking') return <div className="card narrow"><p className="sub">Checking your link…</p></div>;
+
+  if (state === 'invalid') {
+    return (
+      <div className="card narrow">
+        <h1>This link has expired</h1>
+        <p className="sub">The reset link is invalid, already used, or older than 30 minutes.</p>
+        <Link className="btn" to="/forgot-password">Request a new link</Link>
+        <p className="foot"><Link className="link-btn" to="/login">Back to login</Link></p>
+      </div>
+    );
+  }
+
+  if (state === 'done') {
+    return (
+      <div className="card narrow">
+        <h1>Password updated</h1>
+        <p className="sub">You can now log in with your new password.</p>
+        <Link className="btn" to="/login">Go to login</Link>
+      </div>
+    );
+  }
+
+  return (
+    <form className="card narrow" onSubmit={submit} noValidate>
+      <div>
+        <h1>Set a new password</h1>
+        <p className="sub">Use at least 8 characters. Longer passwords are safer.</p>
+      </div>
+      <Alert>{error}</Alert>
+      <PasswordField label="New password" value={pw} onChange={(e) => setPw(e.target.value)} error={errors.pw} autoComplete="new-password" />
+      <div className="meter" aria-hidden="true">
+        {[0, 1, 2, 3].map((i) => <i key={i} className={i < n ? 'on' : ''} />)}
+      </div>
+      <div className="hint">Strength: {STRENGTH_LABEL[n]}. 8 to 72 characters.</div>
+      <PasswordField label="Confirm new password" value={confirm} onChange={(e) => setConfirm(e.target.value)} error={errors.confirm} autoComplete="new-password" />
+      <button className="btn" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Update password'}</button>
     </form>
   );
 }
