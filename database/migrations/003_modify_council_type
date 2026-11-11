@@ -1,0 +1,1 @@
+   ALTER TABLE COUNCIL MODIFY COUNCIL_TYPE ENUM('Municipal Council','Urban Council','Pradeshiya Sabha') NOT NULL;
