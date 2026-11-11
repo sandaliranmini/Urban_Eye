@@ -9,6 +9,7 @@ import { createContext, useCallback, useContext, useEffect, useId, useMemo, useS
 import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom';
 import WardSelect from './components/WardSelect';
 import ReportIssue from './pages/ReportIssue';
+import IssueList from './pages/IssueList';
 
 // ---------------------------------------------------------------- config
 const API = 'http://localhost:5000/api/auth'; // change for deployment
@@ -31,11 +32,12 @@ const PAGES = {
   home: { label: 'Dashboard', roles: ['citizen', 'field_officer', 'supervisor', 'admin'] },
   report: { label: 'Report an issue', roles: ['citizen'] },
   mine: { label: 'My reports', roles: ['citizen'] },
+  allIssues: { label: 'All Ward Issues', roles: ['citizen'] },
   assigned: { label: 'My assigned issues', roles: ['field_officer'] },
   issues: { label: 'Ward issues', roles: ['supervisor', 'admin'] },
   verify: { label: 'Verification queue', roles: ['supervisor', 'admin'] },
   addOfficer: { label: 'Add officer', roles: ['admin'] },
-    profile: { label: 'My profile', roles: ['citizen', 'field_officer', 'supervisor', 'admin'] },
+  profile: { label: 'My profile', roles: ['citizen', 'field_officer', 'supervisor', 'admin'] },
 };
 const canOpen = (role, page) => !!PAGES[page] && PAGES[page].roles.includes(role);
 
@@ -442,7 +444,7 @@ function Dashboard({ keys }) {
   const { user, signOut } = useAuth();
   const [page, setPage] = useState('home');
   const role = user.role;
-  const nav = keys.filter((p) => canOpen(role, p));
+  const nav = ['home', 'report', 'mine', 'allIssues', 'profile']; // Hardcoded for Citizen
 
   return (
     <div className="shell">
@@ -463,7 +465,19 @@ function Dashboard({ keys }) {
           ))}
         </nav>
         <main className="content">
-          {!canOpen(role, page) ? <Forbidden /> : page === 'home' ? <Home role={role} go={setPage} />:page === 'report' ? <ReportIssue defaultWardId={user.ward_id || ''} /> : page === 'profile' ? <Profile /> : page === 'profile' ? <Profile /> : page === 'addOfficer' ? <AddOfficer /> : <Placeholder title={PAGES[page].label} />}
+          {page === 'allIssues' ? (
+            <IssueList />
+          ) : page === 'home' ? (
+            <Home role={role} go={setPage} />
+          ) : page === 'report' ? (
+            <ReportIssue defaultWardId={user.ward_id || ''} />
+          ) : page === 'profile' ? (
+            <Profile />
+          ) : page === 'addOfficer' ? (
+            <AddOfficer />
+          ) : (
+            <Placeholder title={PAGES[page]?.label || 'Page'} />
+          )}
         </main>
       </div>
     </div>
@@ -1086,7 +1100,7 @@ export function ProtectedRoute({ roles, children }) {
   return children;
 }
 
-export const CitizenDashboard = () => <Dashboard keys={['home', 'report', 'mine','profile']} />;
+export const CitizenDashboard = () => <Dashboard keys={['home', 'report', 'mine', 'allIssues', 'profile']} />;
 
 export function OfficerDashboard() {
   const { user } = useAuth();
