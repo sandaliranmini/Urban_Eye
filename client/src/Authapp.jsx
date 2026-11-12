@@ -10,6 +10,8 @@ import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom';
 import WardSelect from './components/WardSelect';
 import ReportIssue from './pages/ReportIssue';
 import IssueList from './pages/IssueList';
+import WardAnnouncements from './components/announcements/WardAnnouncements';
+import AdminAnalyticsDashboard from './components/admin/AdminAnalyticsDashboard';
 
 // ---------------------------------------------------------------- config
 const API = 'http://localhost:5000/api/auth'; // change for deployment
@@ -30,6 +32,8 @@ const ROLE_HOME = { citizen: '/dashboard', field_officer: '/officer', supervisor
 // Which roles may open which page. The sidebar is built from this.
 const PAGES = {
   home: { label: 'Dashboard', roles: ['citizen', 'field_officer', 'supervisor', 'admin'] },
+  announcements: { label: 'Ward Announcements', roles: ['citizen', 'field_officer', 'supervisor', 'admin'] },
+  analytics: { label: 'Analytics & Reports', roles: ['supervisor', 'admin'] },
   report: { label: 'Report an issue', roles: ['citizen'] },
   mine: { label: 'My reports', roles: ['citizen'] },
   allIssues: { label: 'All Ward Issues', roles: ['citizen'] },
@@ -444,7 +448,7 @@ function Dashboard({ keys }) {
   const { user, signOut } = useAuth();
   const [page, setPage] = useState('home');
   const role = user.role;
-  const nav = ['home', 'report', 'mine', 'allIssues', 'profile']; // Hardcoded for Citizen
+  const nav = keys && keys.length > 0 ? keys : ['home', 'profile'];
 
   return (
     <div className="shell">
@@ -460,7 +464,7 @@ function Dashboard({ keys }) {
         <nav className="side" aria-label="Main">
           {nav.map((p) => (
             <button key={p} className={page === p ? 'on' : ''} aria-current={page === p ? 'page' : undefined} onClick={() => setPage(p)}>
-              {PAGES[p].label}
+              {PAGES[p]?.label || p}
             </button>
           ))}
         </nav>
@@ -471,6 +475,10 @@ function Dashboard({ keys }) {
             <Home role={role} go={setPage} />
           ) : page === 'report' ? (
             <ReportIssue defaultWardId={user.ward_id || ''} />
+          ) : page === 'announcements' ? (
+            <WardAnnouncements user={user} canManage={['admin', 'supervisor', 'field_officer'].includes(role)} />
+          ) : page === 'analytics' ? (
+            <AdminAnalyticsDashboard />
           ) : page === 'profile' ? (
             <Profile />
           ) : page === 'addOfficer' ? (
@@ -499,10 +507,29 @@ const Placeholder = ({ title }) => (
 );
 
 const HOME_TILES = {
-  citizen: [['report', 'Report an issue', 'Tell your council about a problem in your ward.'], ['mine', 'My reports', 'Track the issues you reported.']],
-  field_officer: [['assigned', 'My assigned issues', 'Issues assigned to you.']],
-  supervisor: [['issues', 'Ward issues', 'All open issues in your ward.'], ['verify', 'Verification queue', 'Closures waiting for verification.']],
-  admin: [['issues', 'Ward issues', 'All open issues.'], ['verify', 'Verification queue', 'Closures waiting for verification.'], ['addOfficer', 'Add officer', 'Create an officer account.']],
+  citizen: [
+    ['announcements', 'Ward Announcements', 'Official notices, outages, and alerts for your ward.'],
+    ['report', 'Report an issue', 'Tell your council about a problem in your ward.'],
+    ['mine', 'My reports', 'Track the issues you reported.'],
+    ['allIssues', 'All Ward Issues', 'Browse issues reported by your community.'],
+  ],
+  field_officer: [
+    ['assigned', 'My assigned issues', 'Issues assigned to you.'],
+    ['announcements', 'Ward Announcements', 'View and post ward notices.'],
+  ],
+  supervisor: [
+    ['analytics', 'Analytics & Reports', 'View ward performance and export summaries.'],
+    ['announcements', 'Ward Announcements', 'Manage and broadcast bulletins.'],
+    ['issues', 'Ward issues', 'All open issues in your ward.'],
+    ['verify', 'Verification queue', 'Closures waiting for verification.'],
+  ],
+  admin: [
+    ['analytics', 'Analytics Dashboard', 'View municipal KPIs and export data reports.'],
+    ['announcements', 'Ward Announcements', 'Broadcast and manage ward notices.'],
+    ['issues', 'Ward issues', 'All open issues across councils.'],
+    ['verify', 'Verification queue', 'Closures waiting for verification.'],
+    ['addOfficer', 'Add officer', 'Create an officer account.'],
+  ],
 };
 
 function Home({ role, go }) {
@@ -1100,15 +1127,17 @@ export function ProtectedRoute({ roles, children }) {
   return children;
 }
 
-export const CitizenDashboard = () => <Dashboard keys={['home', 'report', 'mine', 'allIssues', 'profile']} />;
+export const CitizenDashboard = () => <Dashboard keys={['home', 'announcements', 'report', 'mine', 'allIssues', 'profile']} />;
 
 export function OfficerDashboard() {
   const { user } = useAuth();
-  const keys = user.role === 'supervisor' ? ['home', 'issues', 'verify','profile'] : ['home', 'assigned','profile'];
+  const keys = user.role === 'supervisor'
+    ? ['home', 'analytics', 'announcements', 'issues', 'verify', 'profile']
+    : ['home', 'announcements', 'assigned', 'profile'];
   return <Dashboard keys={keys} />;
 }
 
-export const AdminDashboard = () => <Dashboard keys={['home', 'issues', 'verify', 'addOfficer', 'profile']} />;
+export const AdminDashboard = () => <Dashboard keys={['home', 'analytics', 'announcements', 'issues', 'verify', 'addOfficer', 'profile']} />;
 
 // ---------------------------------------------------------------- styles
 const CSS = `
