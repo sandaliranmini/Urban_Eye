@@ -1,12 +1,17 @@
 import axiosInstance from './axiosInstance';
 
-export const getAnnouncementsByWard = async (wardId) => {
-  const response = await axiosInstance.get(`/announcements/ward/${wardId}`);
+export const getAnnouncementsByWard = async (wardId, params = {}) => {
+  const response = await axiosInstance.get(`/announcements/ward/${wardId}`, { params });
   return response.data;
 };
 
-export const getAllAnnouncements = async () => {
-  const response = await axiosInstance.get('/announcements');
+export const getAllAnnouncements = async (params = {}) => {
+  const response = await axiosInstance.get('/announcements', { params });
+  return response.data;
+};
+
+export const getAnnouncementById = async (id) => {
+  const response = await axiosInstance.get(`/announcements/${id}`);
   return response.data;
 };
 

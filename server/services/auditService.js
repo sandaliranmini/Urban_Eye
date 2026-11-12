@@ -310,6 +310,73 @@ class AuditService {
       conn
     );
   }
+
+  /**
+   * Log announcement created
+   */
+  static async logAnnouncementCreated({ announcementId, title, category, wardId, councilId, user, req, conn = null }) {
+    const { performedByType, performedById } = determinePerformer(user);
+    const { ipAddress, userAgent } = extractClientInfo(req);
+    return AuditLog.log(
+      {
+        entityType: AuditLog.ENTITY_TYPE.ANNOUNCEMENT,
+        entityId: announcementId,
+        action: AuditLog.ACTION.ANNOUNCEMENT_CREATED,
+        performedByType,
+        performedById,
+        newState: { title, category, wardId, councilId },
+        details: { title, category, wardId, councilId },
+        ipAddress,
+        userAgent,
+      },
+      conn
+    );
+  }
+
+  /**
+   * Log announcement updated
+   */
+  static async logAnnouncementUpdated({ announcementId, oldState, newState, user, req, conn = null }) {
+    const { performedByType, performedById } = determinePerformer(user);
+    const { ipAddress, userAgent } = extractClientInfo(req);
+    return AuditLog.log(
+      {
+        entityType: AuditLog.ENTITY_TYPE.ANNOUNCEMENT,
+        entityId: announcementId,
+        action: AuditLog.ACTION.ANNOUNCEMENT_UPDATED,
+        performedByType,
+        performedById,
+        oldState,
+        newState,
+        details: { announcementId },
+        ipAddress,
+        userAgent,
+      },
+      conn
+    );
+  }
+
+  /**
+   * Log announcement deleted
+   */
+  static async logAnnouncementDeleted({ announcementId, oldState, user, req, conn = null }) {
+    const { performedByType, performedById } = determinePerformer(user);
+    const { ipAddress, userAgent } = extractClientInfo(req);
+    return AuditLog.log(
+      {
+        entityType: AuditLog.ENTITY_TYPE.ANNOUNCEMENT,
+        entityId: announcementId,
+        action: AuditLog.ACTION.ANNOUNCEMENT_DELETED,
+        performedByType,
+        performedById,
+        oldState,
+        details: { announcementId },
+        ipAddress,
+        userAgent,
+      },
+      conn
+    );
+  }
 }
 
 module.exports = AuditService;
