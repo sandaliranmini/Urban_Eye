@@ -12,6 +12,7 @@ import ReportIssue from './pages/ReportIssue';
 import IssueList from './pages/IssueList';
 import WardAnnouncements from './components/announcements/WardAnnouncements';
 import AdminAnalyticsDashboard from './components/admin/AdminAnalyticsDashboard';
+import AssignedWardQueue from './components/officer/AssignedWardQueue';
 
 // ---------------------------------------------------------------- config
 const API = 'http://localhost:5000/api/auth'; // change for deployment
@@ -34,14 +35,14 @@ const PAGES = {
   home: { label: 'Dashboard', roles: ['citizen', 'field_officer', 'supervisor', 'admin'] },
   announcements: { label: 'Ward Announcements', roles: ['citizen', 'field_officer', 'supervisor', 'admin'] },
   analytics: { label: 'Analytics & Reports', roles: ['supervisor', 'admin'] },
-  report: { label: 'Report an issue', roles: ['citizen'] },
-  mine: { label: 'My reports', roles: ['citizen'] },
+  report: { label: 'Report an Issue', roles: ['citizen'] },
+  mine: { label: 'My Reports', roles: ['citizen'] },
   allIssues: { label: 'All Ward Issues', roles: ['citizen'] },
-  assigned: { label: 'My assigned issues', roles: ['field_officer'] },
-  issues: { label: 'Ward issues', roles: ['supervisor', 'admin'] },
-  verify: { label: 'Verification queue', roles: ['supervisor', 'admin'] },
-  addOfficer: { label: 'Add officer', roles: ['admin'] },
-  profile: { label: 'My profile', roles: ['citizen', 'field_officer', 'supervisor', 'admin'] },
+  assigned: { label: 'My Assigned Issues', roles: ['field_officer'] },
+  issues: { label: 'Ward Issues', roles: ['supervisor', 'admin'] },
+  verify: { label: 'Verification Queue', roles: ['supervisor', 'admin'] },
+  addOfficer: { label: 'Add Officer', roles: ['admin'] },
+  profile: { label: 'My Profile', roles: ['citizen', 'field_officer', 'supervisor', 'admin'] },
 };
 const canOpen = (role, page) => !!PAGES[page] && PAGES[page].roles.includes(role);
 
@@ -102,7 +103,7 @@ export function AuthProvider({ children }) {
     setSession(s);
     setNotice('');
   }, []);
-    // Update the stored user (and token, if the server sent a new one) after a profile change
+  // Update the stored user (and token, if the server sent a new one) after a profile change
   const updateUser = useCallback((patch, token) => {
     setSession((prev) => {
       const s = { token: token || prev.token, user: { ...prev.user, ...patch } };
@@ -150,7 +151,7 @@ export function AuthProvider({ children }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-    const value = useMemo(
+  const value = useMemo(
     () => ({ session, user: session?.user, notice, checking, signIn, signOut, authed, updateUser }),
     [session, notice, checking, signIn, signOut, authed, updateUser]
   );
@@ -294,7 +295,7 @@ function LoginCard() {
         method: 'POST',
         body: { identifier: identifier.trim(), password },
       });
-            if (!data.user) throw new Error('Unexpected response from the server');
+      if (!data.user) throw new Error('Unexpected response from the server');
       signIn({ token: data.token, user: data.user });
     } catch (err) {
       setError(err.message);
@@ -303,7 +304,7 @@ function LoginCard() {
     }
   };
 
-    // Update the stored user (and token, if the server sent a new one) after a profile change
+  // Update the stored user (and token, if the server sent a new one) after a profile change
   const updateUser = useCallback((patch, token) => {
     setSession((prev) => {
       const s = { token: token || prev.token, user: { ...prev.user, ...patch } };
@@ -340,7 +341,7 @@ function LoginCard() {
         autoComplete="username"
       />
       <PasswordField label="Password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
-              <div style={{ textAlign: 'right', marginTop: -8 }}>
+      <div style={{ textAlign: 'right', marginTop: -8 }}>
         <Link className="link-btn" to="/forgot-password">Forgot password?</Link>
       </div>
       <button className="btn" type="submit" disabled={busy}>{busy ? 'Logging in…' : 'Log in'}</button>
@@ -427,10 +428,10 @@ function RegisterCard() {
         <Field label="Email (optional)" value={f.email} onChange={set('email')} error={errors.email} placeholder="you@example.com" autoComplete="email" />
       </div>
       <WardSelect
-  value={f.ward_id}
-  onChange={(id) => setF((p) => ({ ...p, ward_id: id }))}
-  error={errors.ward_id}
-/>
+        value={f.ward_id}
+        onChange={(id) => setF((p) => ({ ...p, ward_id: id }))}
+        error={errors.ward_id}
+      />
       <div className="grid2">
         <PasswordField label="Password" value={f.password} onChange={set('password')} error={errors.password} placeholder="8 to 72 characters" autoComplete="new-password" />
         <PasswordField label="Confirm password" value={f.confirm} onChange={set('confirm')} error={errors.confirm} placeholder="Repeat password" autoComplete="new-password" />
@@ -447,28 +448,68 @@ function RegisterCard() {
 function Dashboard({ keys }) {
   const { user, signOut } = useAuth();
   const [page, setPage] = useState('home');
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const role = user.role;
   const nav = keys && keys.length > 0 ? keys : ['home', 'profile'];
 
   return (
     <div className="shell">
       <header className="topbar">
-        <div className="brand dark"><LogoMark /><span>Urban Eye</span></div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <button
+            type="button"
+            className="mobile-nav-toggle"
+            onClick={() => setMobileNavOpen((prev) => !prev)}
+            aria-label={mobileNavOpen ? 'Close menu' : 'Open menu'}
+          >
+            {mobileNavOpen ? (
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            ) : (
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <line x1="3" y1="12" x2="21" y2="12"></line>
+                <line x1="3" y1="18" x2="21" y2="18"></line>
+              </svg>
+            )}
+          </button>
+          <div className="brand dark"><LogoMark /><span>Urban Eye</span></div>
+        </div>
         <div className="who">
           <RoleBadge role={role} />
-          <span>{user.full_name}</span>
+          <span className="user-name">{user.full_name}</span>
           <button className="link-btn" onClick={signOut}>Log out</button>
         </div>
       </header>
+
+      {/* Mobile Drawer Backdrop */}
+      {mobileNavOpen && (
+        <div
+          className="mobile-nav-backdrop"
+          onClick={() => setMobileNavOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
       <div className="body">
-        <nav className="side" aria-label="Main">
+        <nav className={`side ${mobileNavOpen ? 'open' : ''}`} aria-label="Main">
           {nav.map((p) => (
-            <button key={p} className={page === p ? 'on' : ''} aria-current={page === p ? 'page' : undefined} onClick={() => setPage(p)}>
+            <button
+              key={p}
+              className={page === p ? 'on' : ''}
+              aria-current={page === p ? 'page' : undefined}
+              onClick={() => {
+                setPage(p);
+                setMobileNavOpen(false);
+              }}
+            >
               {PAGES[p]?.label || p}
             </button>
           ))}
         </nav>
-        <main className="content">
+        <main className="content" style={{ maxWidth: ['assigned', 'issues'].includes(page) ? '1200px' : undefined }}>
           {page === 'allIssues' ? (
             <IssueList />
           ) : page === 'home' ? (
@@ -483,6 +524,8 @@ function Dashboard({ keys }) {
             <Profile />
           ) : page === 'addOfficer' ? (
             <AddOfficer />
+          ) : page === 'assigned' || page === 'issues' ? (
+            <AssignedWardQueue user={user} onNavigate={setPage} />
           ) : (
             <Placeholder title={PAGES[page]?.label || 'Page'} />
           )}
@@ -499,12 +542,17 @@ const Forbidden = () => (
   </div>
 );
 
-const Placeholder = ({ title }) => (
-  <div>
-    <h1>{title}</h1>
-    <p className="sub">This page will be built in a later sprint.</p>
-  </div>
-);
+const Placeholder = ({ title }) => {
+  if (title === 'My assigned issues' || title === 'Ward issues') {
+    return <AssignedWardQueue />;
+  }
+  return (
+    <div>
+      <h1>{title}</h1>
+      <p className="sub">This page will be built in a later sprint.</p>
+    </div>
+  );
+};
 
 const HOME_TILES = {
   citizen: [
@@ -562,7 +610,7 @@ function AddOfficer() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    request('/wards').then((d) => setWards(d.wards)).catch(() => {});
+    request('/wards').then((d) => setWards(d.wards)).catch(() => { });
   }, []);
 
   const councils = [...new Set(wards.map((w) => w.council_id))];
@@ -1204,9 +1252,17 @@ button{font-family:inherit}
 .who{display:flex;align-items:center;gap:16px;font-size:15px}
 .body{flex:1;display:flex}
 .side{width:240px;padding:24px 16px;background:#fff;border-right:1px solid var(--border);display:flex;flex-direction:column;gap:6px}
-.side button{text-align:left;padding:10px 12px;border:0;border-radius:8px;background:transparent;color:var(--muted);font-size:15px;cursor:pointer}
-.side button:hover{background:var(--nav-tint)}
-.side button.on{background:var(--nav-tint);color:var(--primary);font-weight:600}
+.side button{text-align:left;padding:11px 16px;border:0;border-radius:8px;background:transparent;color:#616060;font-size:15px;cursor:pointer;font-family:inherit;transition:all .15s}
+.side button:hover{background:var(--nav-tint);color:#17324D}
+.side button.on{background:#17324D;color:#FFFFFF;font-weight:700;box-shadow:0px 1px 2px rgba(0,0,0,0.05)}
+.officer-top-nav{display:flex;align-items:center;gap:32px}
+.officer-top-nav .top-nav-link{background:none;border:none;font-size:16px;font-weight:600;color:#888888;cursor:pointer;padding:12px 0;border-bottom:2px solid transparent;font-family:inherit;transition:all .15s}
+.officer-top-nav .top-nav-link:hover{color:#17324D}
+.officer-top-nav .top-nav-link.active{color:#17324D;border-bottom:2px solid #17324D}
+.bell-badge-btn{position:relative;width:40px;height:40px;border-radius:50%;background:#F0F4F8;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background .15s}
+.bell-badge-btn:hover{background:#E2E8F0}
+.bell-dot{position:absolute;top:7px;right:7px;width:9px;height:9px;background:#D92D20;border-radius:50%;box-shadow:0 0 0 2px #fff}
+.officer-avatar{width:40px;height:40px;border-radius:50%;background:#17324D;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;letter-spacing:0.5px;box-shadow:0px 1px 2px rgba(0,0,0,0.05)}
 .content{flex:1;padding:40px 48px;max-width:960px}
 .form-page{display:flex;flex-direction:column;gap:24px;max-width:760px}
 .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px;margin-top:24px}
@@ -1248,15 +1304,28 @@ button{font-family:inherit}
 .skeleton{height:320px;border-radius:12px;background:linear-gradient(90deg,var(--tint),#fff,var(--tint));background-size:200% 100%;animation:sk 1.2s infinite}
 @keyframes sk{to{background-position:-200% 0}}
 
+.mobile-nav-toggle{display:none;background:none;border:none;padding:6px;cursor:pointer;color:#17324D;border-radius:6px;line-height:1}
+.mobile-nav-toggle:hover{background:var(--nav-tint)}
+.mobile-nav-backdrop{display:none}
+
 @media (max-width:900px){
   .panel{display:none}
   .stage{padding:24px 16px}
   .card{padding:28px 20px}
   .grid2{grid-template-columns:1fr}
-  .side{display:none}
-  .content{padding:24px 20px}
+  .mobile-nav-toggle{display:inline-flex;align-items:center;justify-content:center}
+  .mobile-nav-backdrop{display:block;position:fixed;top:64px;left:0;right:0;bottom:0;background:rgba(15,31,46,0.45);z-index:998;backdrop-filter:blur(2px)}
+  .side{display:none;position:fixed;top:64px;left:0;bottom:0;width:260px;z-index:999;box-shadow:4px 0 20px rgba(0,0,0,0.15);background:#fff;overflow-y:auto}
+  .side.open{display:flex}
+  .content{padding:24px 16px;width:100%;box-sizing:border-box}
   .topbar{padding:0 16px}
   .pgrid{grid-template-columns:1fr}
   .phead{flex-wrap:wrap}
+}
+
+@media (max-width:540px){
+  .topbar{padding:0 12px}
+  .who{gap:8px;font-size:13px}
+  .user-name{display:none}
 }
 `;

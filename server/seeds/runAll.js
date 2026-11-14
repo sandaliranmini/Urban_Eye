@@ -3,6 +3,7 @@ const seedCouncils = require('./seedCouncils');
 const seedWards = require('./seedWards');
 const seedCitizens = require('./seedCitizens');
 const seedOfficers = require('./seedOfficers');
+const seedIssues = require('./seedIssues');
 
 // Children first. TRUNCATE also resets every AUTO_INCREMENT counter to 1.
 const TABLES = [
@@ -35,6 +36,7 @@ async function runAll() {
     await seedWards();    // Depends on Councils
     await seedCitizens(); // Depends on Wards
     await seedOfficers(); // Depends on Councils and Wards
+    await seedIssues();   // Depends on Citizens and Wards
 
     console.log('\nAll seeders completed successfully!');
     process.exit(0);
