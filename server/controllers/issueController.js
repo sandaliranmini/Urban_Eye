@@ -77,7 +77,7 @@ exports.createIssue = async (req, res) => {
 function parseFilters(req) {
   const { category, status, search, sort } = req.query;
   const page = Math.max(1, Number.parseInt(req.query.page, 10) || 1);
-  const limit = Math.min(50, Math.max(1, Number.parseInt(req.query.limit, 10) || 10));
+  const limit = Math.min(100, Math.max(1, Number.parseInt(req.query.limit, 10) || 50));
   return {
     category: CATEGORIES.includes(category) ? category : undefined,
     status: STATUSES.includes(status) ? status : undefined,
