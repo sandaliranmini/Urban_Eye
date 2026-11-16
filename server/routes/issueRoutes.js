@@ -1,9 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const upload = require('../middleware/upload');
-const { authenticate, requireRole } = require('../middleware/authMiddleware');
+const { authenticate, requireRole} = require('../middleware/authMiddleware');
+const { requireVerifiedEmail } = require('./authRoutes');
 const issues = require('../controllers/issueController');
 const resolution = require('../controllers/resolutionController');
+
+
+
 
 // Turns multer errors (file too big, wrong type) into clean 400 JSON responses
 const uploadPhoto = (req, res, next) =>
@@ -23,8 +27,10 @@ router.get('/ward/:wardId', issues.issuesByWard);
 router.post('/check-duplicates', authenticate, issues.checkDuplicates);
 
 router.get('/:id', issues.getIssue);
-router.post('/', authenticate, uploadPhoto, issues.createIssue);
+router.post('/', authenticate, requireVerifiedEmail, uploadPhoto, issues.createIssue);
 router.put('/:id/status', authenticate, requireRole('officer', 'field_officer', 'supervisor', 'admin'), issues.updateStatus);
+
+
 
 // Resolution proof submission (Officers move In Progress -> Resolved, starts 14-day timer)
 router.post(
