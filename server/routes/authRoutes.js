@@ -11,6 +11,10 @@
 //   POST  /api/auth/me/password      change own password (citizen or officer)
 //   POST  /api/auth/me/deactivate    citizen deactivates own account (needs password)
 //   POST  /api/auth/officers         admin only: create an officer account
+// EMAIL VERIFICATION (citizens)
+//   POST  /api/auth/verify-email         confirm an email with the token from the link (public)
+//   POST  /api/auth/resend-verification  send a new link (citizen, max 3 per hour)
+//   requireVerifiedEmail (exported middleware): use it on routes that need a verified email, e.g. creating an issue
 // PASSWORD RESET (public)
 //   POST  /api/auth/forgot-password        email a reset link (same reply whether or not the email exists)
 //   GET   /api/auth/reset-password/check   is a reset link still usable?
@@ -102,6 +106,44 @@ const officerToken = (o) =>
     council_id: o.COUNCIL_ID,
   });
 
+// ---------- Email verification (citizens): helpers ----------
+const VERIFY_HOURS = 24;
+
+async function sendVerifyEmail(to, name, link) {
+  if (!mailer) {
+    console.log(`[mail disabled] Email verification link for ${to}: ${link}`);
+    return;
+  }
+  await mailer.sendMail({
+    from: process.env.MAIL_FROM || 'Urban Eye <no-reply@urbaneye.local>',
+    to,
+    subject: 'Verify your Urban Eye email',
+    text: `Hello ${name},\n\nPlease confirm your email address. The link expires in ${VERIFY_HOURS} hours:\n${link}\n\nIf you did not create an Urban Eye account, you can ignore this email.`,
+    html: `<p>Hello ${esc(name)},</p><p>Please confirm your email address. The link expires in ${VERIFY_HOURS} hours.</p><p><a href="${esc(link)}" style="display:inline-block;padding:12px 20px;background:#17324D;color:#fff;border-radius:8px;text-decoration:none;font-weight:600">Verify email</a></p><p>If you did not create an Urban Eye account, you can ignore this email.</p>`,
+  });
+}
+
+// Makes a fresh verification link for the citizen's current email and sends it.
+// Older unused links stop working. Returns false when the limit (3 per hour) is reached.
+async function issueVerification(citizenId, email, name) {
+  const [recent] = await pool.query(
+    `SELECT COUNT(*) AS n FROM EMAIL_VERIFICATION
+      WHERE CITIZEN_ID = ? AND CREATED_AT > DATE_SUB(NOW(), INTERVAL 1 HOUR)`,
+    [citizenId]
+  );
+  if (recent[0].n >= 3) return false;
+
+  await pool.query('UPDATE EMAIL_VERIFICATION SET USED_AT = NOW() WHERE CITIZEN_ID = ? AND USED_AT IS NULL', [citizenId]);
+  const token = crypto.randomBytes(32).toString('hex');
+  await pool.query(
+    `INSERT INTO EMAIL_VERIFICATION (CITIZEN_ID, EMAIL, TOKEN_HASH, EXPIRES_AT)
+     VALUES (?, ?, ?, DATE_ADD(NOW(), INTERVAL ? HOUR))`,
+    [citizenId, email, sha256(token), VERIFY_HOURS]
+  );
+  await sendVerifyEmail(email, name, `${CLIENT_URL}/verify-email?token=${token}`);
+  return true;
+}
+
 // ---------- Middleware ----------
 // Verifies the Bearer token and sets req.user
 const authenticate = (req, res, next) => {
@@ -134,6 +176,20 @@ const authenticate = (req, res, next) => {
 // Use after authenticate: router.get('/x', authenticate, requireRole('supervisor', 'admin'), handler)
 const requireRole = (...roles) => (req, res, next) =>
   roles.includes(req.user?.role) ? next() : res.status(403).json({ message: 'Forbidden' });
+
+// Use after authenticate on actions that need a verified email (e.g. creating an issue).
+// Voting and other actions don't need it. Officers are not checked.
+const requireVerifiedEmail = async (req, res, next) => {
+  if (req.user?.kind !== 'citizen') return next();
+  try {
+    const [rows] = await pool.query('SELECT EMAIL_VERIFIED_AT FROM CITIZEN WHERE CITIZEN_ID = ?', [req.user.id]);
+    if (rows[0]?.EMAIL_VERIFIED_AT) return next();
+    return res.status(403).json({ message: 'Verify your email address to do this', code: 'EMAIL_NOT_VERIFIED' });
+  } catch (err) {
+    console.error('Verified email check error:', err);
+    return res.status(500).json({ message: 'Server error' });
+  }
+};
 
 // ---------- GET /wards (public) ----------
 router.get('/wards', async (req, res) => {
@@ -208,8 +264,18 @@ router.post('/register', async (req, res) => {
       [wardId, nicHash, name, cleanEmail, mobile, cleanAddress, passwordHash]
     );
 
+    let verificationSent = false;
+    if (cleanEmail) {
+      try {
+        verificationSent = await issueVerification(result.insertId, cleanEmail, name);
+      } catch (e) {
+        console.error('Verification email error:', e); // registration still succeeds
+      }
+    }
+
     return res.status(201).json({
       message: 'Registration successful',
+      email_verification_sent: verificationSent,
       citizen: { citizen_id: result.insertId, full_name: name, ward_id: wardId },
     });
   } catch (err) {
@@ -365,7 +431,7 @@ router.get('/me', authenticate, async (req, res) => {
 
     const [rows] = await pool.query(
       `SELECT c.CITIZEN_ID, c.WARD_ID, c.FULL_NAME, c.EMAIL, c.MOBILE_NUMBER, c.ADDRESS,
-              c.CREDIBILITY_SCORE, c.CREATED_AT, c.IS_ACTIVE, w.WARD_NAME, w.COUNCIL_ID, co.COUNCIL_NAME
+              c.CREDIBILITY_SCORE, c.CREATED_AT, c.EMAIL_VERIFIED_AT, c.IS_ACTIVE, w.WARD_NAME, w.COUNCIL_ID, co.COUNCIL_NAME
          FROM CITIZEN c
          JOIN WARD w ON w.WARD_ID = c.WARD_ID
          JOIN COUNCIL co ON co.COUNCIL_ID = w.COUNCIL_ID
@@ -387,6 +453,7 @@ router.get('/me', authenticate, async (req, res) => {
         address: c.ADDRESS,
         credibility_score: c.CREDIBILITY_SCORE,
         created_at: c.CREATED_AT,
+        email_verified: !!c.EMAIL_VERIFIED_AT,
         ward_id: c.WARD_ID,
         ward_name: c.WARD_NAME,
         council_name: c.COUNCIL_NAME,
@@ -415,7 +482,7 @@ router.patch('/me', authenticate, requireRole('citizen'), async (req, res) => {
     }
     const cleanAddress = isStr(address) && address.trim() ? address.trim() : null;
 
-    const [cur] = await pool.query('SELECT WARD_ID, IS_ACTIVE FROM CITIZEN WHERE CITIZEN_ID = ?', [req.user.id]);
+    const [cur] = await pool.query('SELECT WARD_ID, EMAIL, IS_ACTIVE FROM CITIZEN WHERE CITIZEN_ID = ?', [req.user.id]);
     if (!cur[0] || !cur[0].IS_ACTIVE) {
       return res.status(403).json({ message: 'Account is not active' });
     }
@@ -433,11 +500,21 @@ router.patch('/me', authenticate, requireRole('citizen'), async (req, res) => {
     }
 
     const name = full_name.trim();
+    // A different email must be verified again
+    const emailChanged = (cur[0].EMAIL || '').toLowerCase() !== (cleanEmail || '');
     await pool.query(
-      `UPDATE CITIZEN SET FULL_NAME = ?, MOBILE_NUMBER = ?, EMAIL = ?, ADDRESS = ?, WARD_ID = ?
+      `UPDATE CITIZEN SET FULL_NAME = ?, MOBILE_NUMBER = ?, EMAIL = ?, ADDRESS = ?, WARD_ID = ?,
+              EMAIL_VERIFIED_AT = IF(?, NULL, EMAIL_VERIFIED_AT)
         WHERE CITIZEN_ID = ?`,
-      [name, mobile_number.trim(), cleanEmail, cleanAddress, wardId, req.user.id]
+      [name, mobile_number.trim(), cleanEmail, cleanAddress, wardId, emailChanged ? 1 : 0, req.user.id]
     );
+    if (emailChanged && cleanEmail) {
+      try {
+        await issueVerification(req.user.id, cleanEmail, name);
+      } catch (e) {
+        console.error('Verification email error:', e);
+      }
+    }
 
     // The token carries ward_id, so issue a fresh one
     return res.json({
@@ -678,6 +755,62 @@ router.post('/reset-password', async (req, res) => {
   }
 });
 
+// ---------- POST /resend-verification (citizens) ----------
+router.post('/resend-verification', authenticate, requireRole('citizen'), async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      'SELECT FULL_NAME, EMAIL, EMAIL_VERIFIED_AT, IS_ACTIVE FROM CITIZEN WHERE CITIZEN_ID = ?',
+      [req.user.id]
+    );
+    const c = rows[0];
+    if (!c || !c.IS_ACTIVE) return res.status(403).json({ message: 'Account is not active' });
+    if (!c.EMAIL) return res.status(400).json({ message: 'Add an email address to your profile first' });
+    if (c.EMAIL_VERIFIED_AT) return res.status(400).json({ message: 'Your email is already verified' });
+
+    const sent = await issueVerification(req.user.id, c.EMAIL, c.FULL_NAME);
+    if (!sent) return res.status(429).json({ message: 'Too many requests. Try again in an hour.' });
+    return res.json({ message: 'Verification link sent' });
+  } catch (err) {
+    console.error('Resend verification error:', err);
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// ---------- POST /verify-email (public, called by the page the link opens) ----------
+router.post('/verify-email', async (req, res) => {
+  const BAD = { message: 'This verification link is invalid or has expired' };
+  try {
+    const { token } = req.body || {};
+    if (!isStr(token) || !/^[a-f0-9]{64}$/.test(token)) return res.status(400).json(BAD);
+
+    const [rows] = await pool.query(
+      `SELECT VERIFY_ID, CITIZEN_ID, EMAIL FROM EMAIL_VERIFICATION
+        WHERE TOKEN_HASH = ? AND USED_AT IS NULL AND EXPIRES_AT > NOW()`,
+      [sha256(token)]
+    );
+    const v = rows[0];
+    if (!v) return res.status(400).json(BAD);
+
+    // Claim the token first, so two requests can't both use it
+    const [claim] = await pool.query('UPDATE EMAIL_VERIFICATION SET USED_AT = NOW() WHERE VERIFY_ID = ? AND USED_AT IS NULL', [v.VERIFY_ID]);
+    if (claim.affectedRows !== 1) return res.status(400).json(BAD);
+
+    // Only counts if the citizen still has the email this link was sent to
+    const [upd] = await pool.query(
+      'UPDATE CITIZEN SET EMAIL_VERIFIED_AT = NOW() WHERE CITIZEN_ID = ? AND LOWER(EMAIL) = LOWER(?) AND IS_ACTIVE = 1',
+      [v.CITIZEN_ID, v.EMAIL]
+    );
+    if (upd.affectedRows !== 1) return res.status(400).json(BAD);
+
+    await pool.query('UPDATE EMAIL_VERIFICATION SET USED_AT = NOW() WHERE CITIZEN_ID = ? AND USED_AT IS NULL', [v.CITIZEN_ID]);
+    return res.json({ message: 'Email verified' });
+  } catch (err) {
+    console.error('Verify email error:', err);
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
 module.exports = router;
 module.exports.authenticate = authenticate;
 module.exports.requireRole = requireRole;
+module.exports.requireVerifiedEmail = requireVerifiedEmail;
