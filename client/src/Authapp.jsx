@@ -5,7 +5,8 @@
 //
 // NOTE: the role checks here only hide pages. The server enforces the real rules (requireRole).
 
-import { createContext, useCallback, useContext, useEffect, useId, useMemo, useState } from 'react';
+
+import { createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom';
 import WardSelect from './components/WardSelect';
 import ReportIssue from './pages/ReportIssue';
@@ -396,7 +397,7 @@ function RegisterCard() {
           password: f.password,
         },
       });
-      setDone(true);
+      setDone(f.email.trim() ? 'email' : 'plain');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -408,7 +409,11 @@ function RegisterCard() {
     return (
       <div className="card narrow">
         <h1>Account created</h1>
-        <p className="sub">You can now log in with your email or NIC number.</p>
+        <p className="sub">
+          {done === 'email'
+            ? 'We sent a verification link to your email. Verify it to report issues. You can already log in and vote.'
+            : 'You can now log in. Add an email in your profile when you want to report issues.'}
+        </p>
         <Link className="btn" to="/login">Go to login</Link>
       </div>
     );
@@ -510,16 +515,17 @@ function Dashboard({ keys }) {
           ))}
         </nav>
         <main className="content" style={{ maxWidth: ['assigned', 'issues'].includes(page) ? '1200px' : undefined }}>
+          {role === 'citizen' && <VerifyBanner />}
           {page === 'allIssues' ? (
             <IssueList />
           ) : page === 'home' ? (
             <Home role={role} go={setPage} />
-          ) : page === 'report' ? (
-            <ReportIssue defaultWardId={user.ward_id || ''} />
           ) : page === 'announcements' ? (
             <WardAnnouncements user={user} canManage={['admin', 'supervisor', 'field_officer'].includes(role)} />
           ) : page === 'analytics' ? (
             <AdminAnalyticsDashboard />
+          ) : page === 'report' ? (
+            <ReportGate go={setPage} defaultWardId={user.ward_id || ''} />
           ) : page === 'profile' ? (
             <Profile />
           ) : page === 'addOfficer' ? (
@@ -683,6 +689,138 @@ function AddOfficer() {
     </form>
   );
 }
+
+// ---------------------------------------------------------------- email verification
+function ResendVerification() {
+  const { authed } = useAuth();
+  const [state, setState] = useState('idle'); // idle | busy | sent
+  const [msg, setMsg] = useState('');
+
+  const send = async () => {
+    setState('busy');
+    setMsg('');
+    try {
+      await authed('/resend-verification', { method: 'POST' });
+      setState('sent');
+    } catch (e) {
+      if (e.status !== 401) setMsg(e.message);
+      setState('idle');
+    }
+  };
+
+  if (state === 'sent') return <strong> Link sent. Check your email.</strong>;
+  return (
+    <>
+      {' '}
+      <button type="button" className="link-btn" onClick={send} disabled={state === 'busy'}>
+        {state === 'busy' ? 'Sending…' : 'Resend link'}
+      </button>
+      {msg && <span className="err"> {msg}</span>}
+    </>
+  );
+}
+
+// Shown at the top of the citizen dashboard while the email is not verified
+function VerifyBanner() {
+  const { authed } = useAuth();
+  const [info, setInfo] = useState(null);
+
+  useEffect(() => {
+    authed('/me').then((d) => setInfo(d.user)).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (!info || info.email_verified) return null;
+  return (
+    <Alert kind="warn">
+      {info.email ? (
+        <>
+          Please verify your email address ({info.email}). You can vote now, but you need a verified email to report issues.
+          <ResendVerification />
+        </>
+      ) : (
+        <>Add an email address in My profile. You need a verified email to report issues.</>
+      )}
+    </Alert>
+  );
+}
+
+// Replaces the report page for citizens who have not verified their email
+function ReportGate({ go, defaultWardId }) {
+  const { authed } = useAuth();
+  const [info, setInfo] = useState(null);
+
+  useEffect(() => {
+    authed('/me').then((d) => setInfo(d.user)).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (!info) return <div className="skeleton" aria-busy="true" aria-label="Loading" />;
+  if (info.email_verified) return <ReportIssue defaultWardId={defaultWardId} />;
+
+  return (
+    <div className="pcard form-card">
+      <h1>Verify your email to report an issue</h1>
+      {info.email ? (
+        <p className="sub">
+          We sent a verification link to <strong>{info.email}</strong>. Open it, then come back here.
+          You can still vote on issues while you wait.
+          <ResendVerification />
+        </p>
+      ) : (
+        <>
+          <p className="sub">Reporting an issue needs a verified email address. You can still vote on issues without one.</p>
+          <div className="pactions-left">
+            <button className="btn" type="button" onClick={() => go('profile')}>Add my email</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+export function VerifyEmailPage() {
+  const [params] = useSearchParams();
+  return (
+    <SplitLayout>
+      <VerifyCard token={params.get('token') || ''} />
+    </SplitLayout>
+  );
+}
+
+function VerifyCard({ token }) {
+  const [state, setState] = useState('checking'); // checking | ok | invalid
+  const ran = useRef(false); // in dev mode React runs effects twice, and a link can only be used once
+
+  useEffect(() => {
+    if (ran.current) return;
+    ran.current = true;
+    request('/verify-email', { method: 'POST', body: { token } })
+      .then(() => setState('ok'))
+      .catch(() => setState('invalid'));
+  }, [token]);
+
+  if (state === 'checking') return <div className="card narrow"><p className="sub">Verifying your email…</p></div>;
+
+  if (state === 'ok') {
+    return (
+      <div className="card narrow">
+        <h1>Email verified</h1>
+        <p className="sub">Thank you. You can now report issues.</p>
+        <Link className="btn" to="/login">Continue</Link>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card narrow">
+      <h1>This link has expired</h1>
+      <p className="sub">The verification link is invalid, already used, or older than 24 hours. Log in and choose "Resend link" from your dashboard.</p>
+      <Link className="btn" to="/login">Go to login</Link>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------- password reset
 export function ForgotPasswordPage() {
   return (
@@ -940,7 +1078,10 @@ function ProfileView({ me, onEdit, onPassword }) {
               <h3>Personal information</h3>
               <InfoRow label="Full name">{me.full_name}</InfoRow>
               <InfoRow label="Mobile number">{me.mobile_number}</InfoRow>
-              <InfoRow label="Email">{me.email}</InfoRow>
+              <InfoRow label="Email">
+                {me.email}{' '}
+                {me.email && <span className={`badge ${me.email_verified ? 'ok' : 'warn'}`}>{me.email_verified ? 'Verified' : 'Unverified'}</span>}
+              </InfoRow>
               <InfoRow label="Address">{me.address || 'Not provided'}</InfoRow>
             </div>
             <div className="pcard">
@@ -1286,6 +1427,7 @@ button{font-family:inherit}
 .irow span:first-child{color:var(--muted)}
 .irow span:last-child{font-weight:500;text-align:right}
 .badge.ok{background:#E8F5EE;color:#1B6B49}
+.badge.warn{background:#FFF1D6;color:#B54708}
 .score{font-size:40px;font-weight:700;color:var(--secondary)}
 .bar{height:8px;border-radius:4px;background:var(--tint)}
 .bar i{display:block;height:8px;border-radius:4px;background:var(--secondary)}

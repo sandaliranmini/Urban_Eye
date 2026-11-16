@@ -9,6 +9,7 @@ import {
   CitizenDashboard,
   OfficerDashboard,
   AdminDashboard,
+  VerifyEmailPage,
 } from './AuthApp';
 
 // Placeholder pages (to be built later)
@@ -27,6 +28,7 @@ function App() {
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/issue/:id" element={<IssueDetail />} />
+          <Route path="/verify-email" element={<VerifyEmailPage />} />
 
           {/* Protected routes */}
           <Route
@@ -37,6 +39,7 @@ function App() {
               </ProtectedRoute>
             }
           />
+
           <Route
             path="/officer"
             element={
@@ -45,6 +48,7 @@ function App() {
               </ProtectedRoute>
             }
           />
+          <Route path="/verify-email" element={<VerifyEmailPage />} />
           <Route
             path="/admin"
             element={
@@ -55,9 +59,12 @@ function App() {
           />
 
           <Route path="*" element={<NotFound />} />
+
+
         </Routes>
       </AuthProvider>
     </BrowserRouter>
+    
   );
 }
 
