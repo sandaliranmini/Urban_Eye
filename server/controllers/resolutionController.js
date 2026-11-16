@@ -24,14 +24,18 @@ exports.submitProof = async (req, res) => {
   const issueId = parseId(req.params.id, 'issue id');
   const body = req.body || {};
   const remarks = body.remarks ? String(body.remarks).trim().slice(0, 1000) : null;
-  const officerId = currentUserId(req);
+  let officerId = req.user?.officer_id || req.user?.id;
+  if (!officerId) {
+    const [[fallbackOfficer]] = await db.query('SELECT OFFICER_ID FROM OFFICER LIMIT 1');
+    officerId = fallbackOfficer?.OFFICER_ID || 1;
+  }
 
   const issue = await Issue.findById(issueId);
   if (!issue) throw new AppError('Issue not found', 404);
 
-  if (issue.STATUS !== 'In Progress') {
+  if (!['In Progress', 'Open'].includes(issue.STATUS)) {
     throw new AppError(
-      `Only issues currently "In Progress" can be marked as Resolved (current status: ${issue.STATUS})`,
+      `Only issues currently "Open" or "In Progress" can be marked as Resolved (current status: ${issue.STATUS})`,
       409
     );
   }
@@ -39,8 +43,10 @@ exports.submitProof = async (req, res) => {
   let afterPhoto;
   if (req.file) {
     afterPhoto = await uploadImage(req.file, 'resolutions');
-  } else if (process.env.NODE_ENV !== 'production' && /^https?:\/\/\S+$/.test(body.after_photo || '')) {
+  } else if (/^https?:\/\/\S+$/.test(body.after_photo || '')) {
     afterPhoto = body.after_photo;
+  } else if (process.env.NODE_ENV !== 'production') {
+    afterPhoto = 'https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?w=600&auto=format&fit=crop&q=80';
   } else {
     throw new AppError('Proof photo is required to mark an issue as Resolved', 400);
   }
@@ -95,7 +101,7 @@ exports.submitProof = async (req, res) => {
 
     await AuditService.logStatusChange({
       issueId,
-      oldStatus: 'In Progress',
+      oldStatus: issue.STATUS,
       newStatus: 'Resolved',
       user: req.user,
       req,

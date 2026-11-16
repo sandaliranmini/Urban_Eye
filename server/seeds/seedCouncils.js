@@ -1,10 +1,10 @@
 const db = require('../config/db');
 
+// This deployment serves one council: Dompe Pradeshiya Sabha.
+// It becomes COUNCIL_ID 1 because the auto-increment counter is reset below.
 async function seedCouncils() {
   const councils = [
-    { name: 'Balangoda Urban Council', district: 'Colombo', province: 'Western' },
-    { name: 'Gampaha Urban Council', district: 'Kandy', province: 'Central' },
-    { name: 'Kandy Urban Council', district: 'Galle', province: 'Southern' },
+    { name: 'Dompe Pradeshiya Sabha', type: 'Pradeshiya Sabha', district: 'Gampaha', province: 'Western' },
   ];
 
   try {
@@ -13,13 +13,14 @@ async function seedCouncils() {
 
     for (const c of councils) {
       await db.query(
-        'INSERT INTO COUNCIL (COUNCIL_NAME, COUNCIL_TYPE, DISTRICT, PROVINCE) VALUES (?, ?, ?, ?)', 
-        [c.name, 'Urban Council', c.district, c.province]
+        'INSERT INTO COUNCIL (COUNCIL_NAME, COUNCIL_TYPE, DISTRICT, PROVINCE) VALUES (?, ?, ?, ?)',
+        [c.name, c.type, c.district, c.province]
       );
     }
-    console.log(`Seeded ${councils.length} councils`);
+    console.log(`Seeded ${councils.length} council: ${councils[0].name}`);
   } catch (err) {
     console.error('Council seed failed:', err.message);
+    throw err; // stop the whole seed here instead of failing later with confusing errors
   }
 }
 

@@ -17,6 +17,11 @@ const EDITABLE = { title: 'TITLE', description: 'DESCRIPTION', category: 'CATEGO
 const LIST_COLUMNS = `
   I.ISSUE_ID, I.TITLE, I.DESCRIPTION, I.CATEGORY, I.STATUS, I.IS_EMERGENCY,
   I.PRIORITY_SCORE, I.BEFORE_PHOTO, I.WARD_ID, W.WARD_NAME, I.CREATED_AT,
+  C.FULL_NAME AS REPORTER_NAME, C.MOBILE_NUMBER AS REPORTER_MOBILE, C.NIC_HASH,
+  (SELECT P.AFTER_PHOTO FROM RESOLUTION_PROOF P
+    WHERE P.ISSUE_ID = I.ISSUE_ID ORDER BY P.SUBMITTED_AT DESC LIMIT 1) AS AFTER_PHOTO,
+  (SELECT P.REMARKS FROM RESOLUTION_PROOF P
+    WHERE P.ISSUE_ID = I.ISSUE_ID ORDER BY P.SUBMITTED_AT DESC LIMIT 1) AS PROOF_REMARKS,
   ${NET_VOTES} AS NET_VOTES`;
 
 function buildWhere({ ward_id, citizen_id, category, status, search } = {}) {
@@ -68,7 +73,9 @@ const Issue = {
     const { whereSql, params } = buildWhere(filters);
     const [rows] = await db.query(
       `SELECT ${LIST_COLUMNS}
-       FROM ISSUE I JOIN WARD W ON W.WARD_ID = I.WARD_ID
+       FROM ISSUE I
+       JOIN WARD W ON W.WARD_ID = I.WARD_ID
+       JOIN CITIZEN C ON C.CITIZEN_ID = I.CITIZEN_ID
        ${whereSql}
        ORDER BY ${SORTS[sort] || SORTS.votes}
        LIMIT ? OFFSET ?`,
@@ -80,7 +87,14 @@ const Issue = {
   // Total for pagination (same filters as findAll)
   async countAll(filters = {}) {
     const { whereSql, params } = buildWhere(filters);
-    const [[row]] = await db.query(`SELECT COUNT(*) AS total FROM ISSUE I ${whereSql}`, params);
+    const [[row]] = await db.query(
+      `SELECT COUNT(*) AS total
+       FROM ISSUE I
+       JOIN WARD W ON W.WARD_ID = I.WARD_ID
+       JOIN CITIZEN C ON C.CITIZEN_ID = I.CITIZEN_ID
+       ${whereSql}`,
+      params
+    );
     return row.total;
   },
 
