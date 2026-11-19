@@ -14,6 +14,8 @@ import IssueList from './pages/IssueList';
 import WardAnnouncements from './components/announcements/WardAnnouncements';
 import AdminAnalyticsDashboard from './components/admin/AdminAnalyticsDashboard';
 import AssignedWardQueue from './components/officer/AssignedWardQueue';
+import OfficerFieldDashboard from './components/officer/OfficerFieldDashboard';
+import axiosInstance from './services/axiosInstance';
 
 // ---------------------------------------------------------------- config
 const API = 'http://localhost:5000/api/auth'; // change for deployment
@@ -22,7 +24,7 @@ const EXPIRED_MSG = 'Your session has expired. Please log in again.';
 
 const ROLE_LABEL = {
   citizen: 'Citizen',
-  field_officer: 'Field Officer',
+  field_officer: 'Officer',
   supervisor: 'Supervisor',
   admin: 'Admin',
 };
@@ -454,8 +456,40 @@ function Dashboard({ keys }) {
   const { user, signOut } = useAuth();
   const [page, setPage] = useState('home');
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [sidebarCounts, setSidebarCounts] = useState({ issues: 0, announcements: 0 });
   const role = user.role;
   const nav = keys && keys.length > 0 ? keys : ['home', 'profile'];
+  const isOfficer = role === 'field_officer' || role === 'supervisor';
+
+  const updateCounts = useCallback(({ issuesCount, announcementsCount }) => {
+    setSidebarCounts((prev) => ({
+      issues: issuesCount !== undefined ? issuesCount : prev.issues,
+      announcements: announcementsCount !== undefined ? announcementsCount : prev.announcements,
+    }));
+  }, []);
+
+  useEffect(() => {
+    if (!isOfficer) return;
+    axiosInstance
+      .get('/issues?limit=100')
+      .then((res) => {
+        const list = res.data?.data || res.data?.issues || res.data || [];
+        if (Array.isArray(list)) {
+          setSidebarCounts((prev) => ({ ...prev, issues: list.length }));
+        }
+      })
+      .catch(() => {});
+
+    axiosInstance
+      .get('/announcements')
+      .then((res) => {
+        const list = res.data?.data || res.data?.announcements || res.data || [];
+        if (Array.isArray(list)) {
+          setSidebarCounts((prev) => ({ ...prev, announcements: list.length }));
+        }
+      })
+      .catch(() => {});
+  }, [isOfficer]);
 
   return (
     <div className="shell">
@@ -480,7 +514,14 @@ function Dashboard({ keys }) {
               </svg>
             )}
           </button>
-          <div className="brand dark"><LogoMark /><span>Urban Eye</span></div>
+          <div
+            className="brand dark"
+            onClick={() => setPage('home')}
+            style={{ cursor: 'pointer', userSelect: 'none' }}
+          >
+            <LogoMark />
+            <span>Urban Eye</span>
+          </div>
         </div>
         <div className="who">
           <RoleBadge role={role} />
@@ -499,27 +540,164 @@ function Dashboard({ keys }) {
       )}
 
       <div className="body">
-        <nav className={`side ${mobileNavOpen ? 'open' : ''}`} aria-label="Main">
-          {nav.map((p) => (
+        {isOfficer ? (
+          <nav className={`side officer-side ${mobileNavOpen ? 'open' : ''}`} aria-label="Field Operations">
+            <div style={{
+              fontSize: '11px',
+              fontWeight: 700,
+              color: '#94A3B8',
+              letterSpacing: '0.05em',
+              textTransform: 'uppercase',
+              padding: '4px 12px 10px 12px',
+            }}>
+              FIELD OPERATIONS
+            </div>
+
+            {/* 1. Dashboard */}
             <button
-              key={p}
-              className={page === p ? 'on' : ''}
-              aria-current={page === p ? 'page' : undefined}
-              onClick={() => {
-                setPage(p);
-                setMobileNavOpen(false);
-              }}
+              className={`officer-side-btn ${page === 'home' ? 'on' : ''}`}
+              onClick={() => { setPage('home'); setMobileNavOpen(false); }}
             >
-              {PAGES[p]?.label || p}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                  <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                </svg>
+                <span>Dashboard</span>
+              </div>
+              {page === 'home' && (
+                <span style={{ width: '6px', height: '6px', background: '#34D399', borderRadius: '50%' }} />
+              )}
             </button>
-          ))}
-        </nav>
-        <main className="content" style={{ maxWidth: ['assigned', 'issues'].includes(page) ? '1200px' : undefined }}>
+
+            {/* 2. Ward Announcements */}
+            <button
+              className={`officer-side-btn ${page === 'announcements' ? 'on' : ''}`}
+              onClick={() => { setPage('announcements'); setMobileNavOpen(false); }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M11 5 6 9H2v6h4l5 4V5z"></path>
+                  <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                  <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+                </svg>
+                <span>Ward Announcements</span>
+              </div>
+              <span style={{
+                background: '#FEF3C7',
+                color: '#D97706',
+                fontSize: '11px',
+                fontWeight: 700,
+                padding: '1px 7px',
+                borderRadius: '9999px',
+              }}>
+                {sidebarCounts.announcements}
+              </span>
+            </button>
+
+            {/* 3. My Assigned Issues */}
+            <button
+              className={`officer-side-btn ${['assigned', 'issues'].includes(page) ? 'on' : ''}`}
+              onClick={() => { setPage(role === 'supervisor' ? 'issues' : 'assigned'); setMobileNavOpen(false); }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 11l3 3L22 4"></path>
+                  <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+                </svg>
+                <span>{role === 'supervisor' ? 'Ward Issues' : 'My Assigned Issues'}</span>
+              </div>
+              <span style={{
+                background: '#F1F5F9',
+                color: '#64748B',
+                fontSize: '11px',
+                fontWeight: 700,
+                padding: '1px 7px',
+                borderRadius: '9999px',
+              }}>
+                {sidebarCounts.issues}
+              </span>
+            </button>
+
+            {/* Additional Supervisor options */}
+            {role === 'supervisor' && (
+              <>
+                <button
+                  className={`officer-side-btn ${page === 'analytics' ? 'on' : ''}`}
+                  onClick={() => { setPage('analytics'); setMobileNavOpen(false); }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="18" y1="20" x2="18" y2="10"></line>
+                      <line x1="12" y1="20" x2="12" y2="4"></line>
+                      <line x1="6" y1="20" x2="6" y2="14"></line>
+                    </svg>
+                    <span>Analytics & Reports</span>
+                  </div>
+                </button>
+                <button
+                  className={`officer-side-btn ${page === 'verify' ? 'on' : ''}`}
+                  onClick={() => { setPage('verify'); setMobileNavOpen(false); }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                    </svg>
+                    <span>Verification Queue</span>
+                  </div>
+                </button>
+              </>
+            )}
+
+            {/* 4. My Profile */}
+            <button
+              className={`officer-side-btn ${page === 'profile' ? 'on' : ''}`}
+              onClick={() => { setPage('profile'); setMobileNavOpen(false); }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                  <circle cx="12" cy="7" r="4"></circle>
+                </svg>
+                <span>My Profile</span>
+              </div>
+            </button>
+          </nav>
+        ) : (
+          <nav className={`side ${mobileNavOpen ? 'open' : ''}`} aria-label="Main">
+            {nav.map((p) => (
+              <button
+                key={p}
+                className={page === p ? 'on' : ''}
+                aria-current={page === p ? 'page' : undefined}
+                onClick={() => {
+                  setPage(p);
+                  setMobileNavOpen(false);
+                }}
+              >
+                {PAGES[p]?.label || p}
+              </button>
+            ))}
+          </nav>
+        )}
+
+        <main
+          className="content"
+          style={{
+            maxWidth: isOfficer ? '1280px' : ['assigned', 'issues'].includes(page) ? '1200px' : undefined,
+            width: '100%',
+            padding: isOfficer ? '28px 32px' : undefined,
+          }}
+        >
           {role === 'citizen' && <VerifyBanner />}
           {page === 'allIssues' ? (
             <IssueList />
           ) : page === 'home' ? (
-            <Home role={role} go={setPage} />
+            isOfficer ? (
+              <OfficerFieldDashboard user={user} onNavigate={setPage} onCountsChange={updateCounts} />
+            ) : (
+              <Home role={role} go={setPage} />
+            )
           ) : page === 'announcements' ? (
             <WardAnnouncements user={user} canManage={['admin', 'supervisor', 'field_officer'].includes(role)} />
           ) : page === 'analytics' ? (
@@ -1384,8 +1562,8 @@ button{font-family:inherit}
 .alert.warn{background:#FFFAEB;border-color:#F0D49A;color:#B54708}
 
 .badge{display:inline-block;padding:4px 12px;border-radius:999px;font-size:13px;font-weight:600;background:var(--nav-tint);color:var(--primary)}
-.badge.field_officer{background:#E3F4EC;color:#1B6B49}
-.badge.supervisor{background:#FFF1D6;color:#B54708}
+.badge.field_officer{background:var(--primary);color:#fff}
+.badge.supervisor{background:var(--primary);color:#fff}
 .badge.admin{background:var(--primary);color:#fff}
 
 .shell{min-height:100vh;display:flex;flex-direction:column}
@@ -1396,14 +1574,10 @@ button{font-family:inherit}
 .side button{text-align:left;padding:11px 16px;border:0;border-radius:8px;background:transparent;color:#616060;font-size:15px;cursor:pointer;font-family:inherit;transition:all .15s}
 .side button:hover{background:var(--nav-tint);color:#17324D}
 .side button.on{background:#17324D;color:#FFFFFF;font-weight:700;box-shadow:0px 1px 2px rgba(0,0,0,0.05)}
-.officer-top-nav{display:flex;align-items:center;gap:32px}
-.officer-top-nav .top-nav-link{background:none;border:none;font-size:16px;font-weight:600;color:#888888;cursor:pointer;padding:12px 0;border-bottom:2px solid transparent;font-family:inherit;transition:all .15s}
-.officer-top-nav .top-nav-link:hover{color:#17324D}
-.officer-top-nav .top-nav-link.active{color:#17324D;border-bottom:2px solid #17324D}
-.bell-badge-btn{position:relative;width:40px;height:40px;border-radius:50%;background:#F0F4F8;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:background .15s}
-.bell-badge-btn:hover{background:#E2E8F0}
-.bell-dot{position:absolute;top:7px;right:7px;width:9px;height:9px;background:#D92D20;border-radius:50%;box-shadow:0 0 0 2px #fff}
-.officer-avatar{width:40px;height:40px;border-radius:50%;background:#17324D;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;letter-spacing:0.5px;box-shadow:0px 1px 2px rgba(0,0,0,0.05)}
+.officer-side-btn{display:flex;align-items:center;justify-content:space-between;width:100%;padding:10px 14px;border:0;border-radius:8px;background:transparent;color:#475569;font-size:14px;font-weight:500;cursor:pointer;font-family:inherit;transition:all .15s}
+.officer-side-btn:hover{background:#F1F5F9;color:#17324D}
+.officer-side-btn.on{background:#17324D;color:#FFFFFF;font-weight:600;box-shadow:0px 1px 2px rgba(0,0,0,0.05)}
+.officer-side-btn.on svg{stroke:#FFFFFF}
 .content{flex:1;padding:40px 48px;max-width:960px}
 .form-page{display:flex;flex-direction:column;gap:24px;max-width:760px}
 .tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px;margin-top:24px}

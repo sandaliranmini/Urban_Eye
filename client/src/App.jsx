@@ -10,7 +10,7 @@ import {
   OfficerDashboard,
   AdminDashboard,
   VerifyEmailPage,
-} from './AuthApp';
+} from './Authapp';
 
 // Placeholder pages (to be built later)
 const IssueDetail = () => <div className="p-8 text-2xl">Issue Detail Page</div>;

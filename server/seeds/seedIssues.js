@@ -72,6 +72,19 @@ async function seedIssues() {
         created_minutes_ago: 4320, // 3 days ago
       },
       {
+        citizen_id: citizen1.CITIZEN_ID,
+        ward_id: ward1Id,
+        title: 'Blocked Stormwater Culvert Causing Road Flooding',
+        description: 'Plastic debris and silt buildup choking culvert throat. Causes severe puddle accumulation across road after rain.',
+        category: 'Water Drainage',
+        status: 'In Progress',
+        is_emergency: 0,
+        priority_score: 58,
+        before_photo: 'https://images.unsplash.com/photo-1541888946425-d0fbb18086f6?w=600&auto=format&fit=crop&q=80',
+        votes: 27,
+        created_minutes_ago: 1440, // 1 day ago
+      },
+      {
         citizen_id: citizen2.CITIZEN_ID,
         ward_id: ward1Id,
         title: 'Deep Pothole Asphalt Patching near Bus Stand',
@@ -85,19 +98,6 @@ async function seedIssues() {
         proof_remarks: 'Asphalt cold patch applied and steam-rolled. Surface leveled to bus bay concrete edge.',
         votes: 31,
         created_minutes_ago: 5760, // 4 days ago
-      },
-      {
-        citizen_id: citizen1.CITIZEN_ID,
-        ward_id: ward1Id,
-        title: 'Blocked Stormwater Culvert Causing Road Flooding',
-        description: 'Plastic debris and silt buildup choking culvert throat. Causes severe puddle accumulation across road after rain.',
-        category: 'Water Drainage',
-        status: 'Open',
-        is_emergency: 0,
-        priority_score: 58,
-        before_photo: 'https://images.unsplash.com/photo-1541888946425-d0fbb18086f6?w=600&auto=format&fit=crop&q=80',
-        votes: 27,
-        created_minutes_ago: 1440, // 1 day ago
       },
       {
         citizen_id: citizen2.CITIZEN_ID,
@@ -157,7 +157,7 @@ async function seedIssues() {
         title: 'Flickering High-Pressure Sodium Streetlamp',
         description: 'Streetlamp cycles on and off every 30 seconds. Creates safety concerns at dark pedestrian crossway.',
         category: 'Street Lighting',
-        status: 'Open',
+        status: 'In Progress',
         is_emergency: 0,
         priority_score: 35,
         before_photo: 'https://images.unsplash.com/photo-1509198397868-475647b2a1e5?w=600&auto=format&fit=crop&q=80',
@@ -176,19 +176,6 @@ async function seedIssues() {
         before_photo: 'https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?w=600&auto=format&fit=crop&q=80',
         votes: 58,
         created_minutes_ago: 360,
-      },
-      {
-        citizen_id: citizen2.CITIZEN_ID,
-        ward_id: ward1Id,
-        title: 'Unregulated Construction Debris on Public Berm',
-        description: 'Piles of crushed brick, concrete chunks, and plaster bags dumped on council sidewalk.',
-        category: 'Waste Management',
-        status: 'Open',
-        is_emergency: 0,
-        priority_score: 30,
-        before_photo: 'https://images.unsplash.com/photo-1581092335397-9583fe92d232?w=600&auto=format&fit=crop&q=80',
-        votes: 14,
-        created_minutes_ago: 8640,
       },
     ];
 
