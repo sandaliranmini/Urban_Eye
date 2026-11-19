@@ -34,6 +34,32 @@ export const uploadResolutionProof = async (id, formData) => {
   return response.data;
 };
 
+export const confirmResolution = async (id, remarks) => {
+  const response = await axiosInstance.post(`/issues/${id}/verify/confirm`, {
+    remarks,
+  });
+  return response.data;
+};
+
+export const disputeResolution = async (id, formData) => {
+  const response = await axiosInstance.post(
+    `/issues/${id}/verify/dispute`,
+    formData,
+    { headers: { 'Content-Type': 'multipart/form-data' } }
+  );
+  return response.data;
+};
+
+export const getIssueVerification = async (id) => {
+  const response = await axiosInstance.get(`/issues/${id}/verification`);
+  return response.data;
+};
+
+export const getIssueAuditLogs = async (id) => {
+  const response = await axiosInstance.get(`/audit-logs/issue/${id}`);
+  return response.data;
+};
+
 export const getIssuesByWard = async (wardId) => {
   const response = await axiosInstance.get(`/issues/ward/${wardId}`);
   return response.data;
@@ -42,4 +68,23 @@ export const getIssuesByWard = async (wardId) => {
 export const getMyIssues = async () => {
   const response = await axiosInstance.get('/issues/my-reports');
   return response.data;
+};
+
+export const buildIssueFormData = (form) => {
+  const mockUpload = import.meta.env.VITE_MOCK_UPLOAD === 'true';
+
+  const fd = new FormData();
+  fd.append('title', form.title.trim());
+  fd.append('description', form.description.trim());
+  fd.append('category', form.category);
+  fd.append('ward_id', String(form.ward_id));
+  fd.append('is_emergency', form.is_emergency ? '1' : '0');
+
+  if (mockUpload) {
+    // placeholder link, used only while testing without Cloudinary
+    fd.append('before_photo', 'https://placehold.co/600x400?text=Mock+photo');
+  } else {
+    fd.append('photo', form.photo); // multer field name on the server
+  }
+  return fd;
 };

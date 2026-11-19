@@ -1,56 +1,70 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import ProtectedRoute from './components/common/ProtectedRoute';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import {
+  AuthProvider,
+  ProtectedRoute,
+  LoginPage,
+  RegisterPage,
+  ForgotPasswordPage,
+  ResetPasswordPage,
+  CitizenDashboard,
+  OfficerDashboard,
+  AdminDashboard,
+  VerifyEmailPage,
+} from './AuthApp';
 
-// Placeholder pages — we'll build these next
-const Landing = () => <div className="p-8 text-2xl">Landing Page</div>;
-const Login = () => <div className="p-8 text-2xl">Login Page</div>;
-const Register = () => <div className="p-8 text-2xl">Register Page</div>;
-const Dashboard = () => <div className="p-8 text-2xl">Citizen Dashboard</div>;
-const OfficerDashboard = () => <div className="p-8 text-2xl">Officer Dashboard</div>;
-const AdminDashboard = () => <div className="p-8 text-2xl">Admin Dashboard</div>;
+// Placeholder pages (to be built later)
 const IssueDetail = () => <div className="p-8 text-2xl">Issue Detail Page</div>;
-const NotFound = () => <div className="p-8 text-2xl">404 — Page Not Found</div>;
+const NotFound = () => <div className="p-8 text-2xl">404: Page Not Found</div>;
 
 function App() {
   return (
     <BrowserRouter>
-      <Routes>
-        {/* Public routes */}
-        <Route path="/" element={<Landing />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
-        <Route path="/issue/:id" element={<IssueDetail />} />
+      <AuthProvider>
+        <Routes>
+          {/* Public routes */}
+          <Route path="/" element={<Navigate to="/login" replace />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
+          <Route path="/issue/:id" element={<IssueDetail />} />
+          <Route path="/verify-email" element={<VerifyEmailPage />} />
 
-        {/* Protected routes */}
-        <Route
-          path="/dashboard"
-          element={
-            <ProtectedRoute>
-              <Dashboard />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/officer"
-          element={
-            <ProtectedRoute role="officer">
-              <OfficerDashboard />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin"
-          element={
-            <ProtectedRoute role="admin">
-              <AdminDashboard />
-            </ProtectedRoute>
-          }
-        />
+          {/* Protected routes */}
+          <Route
+            path="/dashboard"
+            element={
+              <ProtectedRoute roles={['citizen']}>
+                <CitizenDashboard />
+              </ProtectedRoute>
+            }
+          />
 
-        {/* 404 */}
-        <Route path="*" element={<NotFound />} />
-      </Routes>
+          <Route
+            path="/officer"
+            element={
+              <ProtectedRoute roles={['field_officer', 'supervisor']}>
+                <OfficerDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/verify-email" element={<VerifyEmailPage />} />
+          <Route
+            path="/admin"
+            element={
+              <ProtectedRoute roles={['admin']}>
+                <AdminDashboard />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route path="*" element={<NotFound />} />
+
+
+        </Routes>
+      </AuthProvider>
     </BrowserRouter>
+    
   );
 }
 

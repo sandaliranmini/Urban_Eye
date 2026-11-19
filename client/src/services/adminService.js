@@ -48,3 +48,34 @@ export const getIssueAnalytics = async (filters = {}) => {
   const response = await axiosInstance.get('/admin/analytics/issues', { params: filters });
   return response.data;
 };
+
+// Export Analytics (CSV or JSON download)
+export const exportAnalytics = async (filters = {}, format = 'csv', type = 'issues') => {
+  const response = await axiosInstance.get('/admin/analytics/export', {
+    params: { ...filters, format, type },
+    responseType: 'blob',
+  });
+
+  const blob = new Blob([response.data], {
+    type: format === 'json' ? 'application/json' : 'text/csv;charset=utf-8;',
+  });
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', `urban_eye_${type}_export_${Date.now()}.${format}`);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+};
+
+// Audit Trail & Logging
+export const getAuditLogs = async (filters = {}) => {
+  const response = await axiosInstance.get('/audit-logs', { params: filters });
+  return response.data;
+};
+
+export const getAuditStats = async (filters = {}) => {
+  const response = await axiosInstance.get('/audit-logs/stats', { params: filters });
+  return response.data;
+};
