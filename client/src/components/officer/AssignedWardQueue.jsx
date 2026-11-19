@@ -802,7 +802,7 @@ export default function AssignedWardQueue({ user, onNavigate }) {
 // Interactive Task Details Overlay Modal (Figma High-Fidelity)
 // -------------------------------------------------------------
 
-function TaskDetailsOverlayModal({
+export function TaskDetailsOverlayModal({
   issue,
   user,
   onClose,
