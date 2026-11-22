@@ -281,11 +281,12 @@ export default function AssignedWardQueue({ user, onNavigate }) {
 
         // Status
         if (selectedStatus === 'Pending') {
-          return ['EMERGENCY', 'IN PROGRESS', 'OPEN'].includes(item.status);
+          return ['EMERGENCY', 'IN PROGRESS', 'OPEN', 'DISPUTED'].includes(item.status);
         }
         if (selectedStatus === 'Open') return item.status === 'OPEN';
         if (selectedStatus === 'In Progress') return item.status === 'IN PROGRESS';
         if (selectedStatus === 'Proof Submitted') return item.status === 'PROOF SUBMITTED';
+        if (selectedStatus === 'Disputed') return item.status === 'DISPUTED';
 
         return true;
       })
@@ -606,6 +607,7 @@ export default function AssignedWardQueue({ user, onNavigate }) {
               <option value="Open">Status: Open</option>
               <option value="In Progress">Status: In Progress</option>
               <option value="Proof Submitted">Status: Proof Submitted</option>
+              <option value="Disputed">Status: Disputed</option>
             </select>
             <span style={styles.dropdownCaret}>
               <ChevronDownIcon className="w-4 h-4 text-slate-600" />
@@ -875,22 +877,38 @@ export function TaskDetailsOverlayModal({
           const logs = res.data?.data?.timeline || [];
           if (logs.length > 0 && isMounted) {
             const mapped = logs.map((log, idx) => {
+              const oldState = typeof log.OLD_STATE === 'string' ? (() => { try { return JSON.parse(log.OLD_STATE); } catch { return {}; } })() : (log.OLD_STATE || {});
+              const newState = typeof log.NEW_STATE === 'string' ? (() => { try { return JSON.parse(log.NEW_STATE); } catch { return {}; } })() : (log.NEW_STATE || {});
+              const details = typeof log.DETAILS === 'string' ? (() => { try { return JSON.parse(log.DETAILS); } catch { return {}; } })() : (log.DETAILS || {});
+
               const isProof = log.ACTION === 'PROOF_SUBMITTED' || log.ACTION === 'RESOLUTION_CONFIRMED';
               const isStatus = log.ACTION === 'STATUS_CHANGED';
               const isCreated = log.ACTION === 'ISSUE_CREATED';
+              const isDisputed = log.ACTION === 'VERIFICATION_DISPUTED' || (isStatus && newState.status === 'Disputed');
+              const isReopened = isStatus && oldState.status === 'Disputed' && newState.status === 'In Progress';
+
+              const performerName = log.PERFORMED_BY_NAME ? `${log.PERFORMED_BY_NAME} (${log.PERFORMED_BY_TYPE})` : (log.PERFORMED_BY_TYPE || 'System');
+              const noteText = details.note || details.notes || details.remarks || details.reason || null;
 
               return {
                 id: log.LOG_ID || idx,
-                color: isProof ? '#23845B' : isStatus ? '#17324D' : '#94A3B8',
-                ringColor: isProof ? '#ECFDF5' : '#F1F5F9',
-                title: isCreated
-                  ? 'Citizen Report Submitted'
-                  : isStatus
-                    ? `Status changed to ${log.NEW_STATE?.status || currentStatus}`
-                    : isProof
-                      ? 'Submitted Resolution Proof'
-                      : log.ACTION.replace(/_/g, ' '),
-                meta: `${log.PERFORMED_BY_TYPE || 'System'} • ${new Date(log.CREATED_AT).toLocaleString()}`,
+                color: isReopened ? '#E05638' : isDisputed ? '#DC2626' : isProof ? '#23845B' : isStatus ? '#17324D' : '#94A3B8',
+                ringColor: isReopened ? '#FEF2F2' : isDisputed ? '#FEE2E2' : isProof ? '#ECFDF5' : '#F1F5F9',
+                title: isReopened
+                  ? 'Issue Reopened for Rework (Dispute Verified)'
+                  : isDisputed
+                    ? 'Citizen Disputed Resolution Proof'
+                    : isCreated
+                      ? 'Citizen Report Submitted'
+                      : isStatus
+                        ? `Status changed: ${oldState.status || ''} → ${newState.status || currentStatus}`
+                        : isProof
+                          ? 'Submitted Resolution Proof'
+                          : log.ACTION.replace(/_/g, ' '),
+                meta: `${performerName} • ${new Date(log.CREATED_AT).toLocaleString()}`,
+                note: noteText,
+                isReopened,
+                isDisputed,
               };
             });
             setTimelineEvents(mapped);
@@ -1360,7 +1378,7 @@ export function TaskDetailsOverlayModal({
                           style={{
                             fontSize: '14px',
                             fontWeight: 600,
-                            color: '#17324D',
+                            color: ev.isReopened ? '#C2410C' : ev.isDisputed ? '#B91C1C' : '#17324D',
                             lineHeight: '20px',
                           }}
                         >
@@ -1376,6 +1394,23 @@ export function TaskDetailsOverlayModal({
                         >
                           {ev.meta}
                         </div>
+                        {ev.note && (
+                          <div
+                            style={{
+                              marginTop: '6px',
+                              padding: '8px 12px',
+                              borderRadius: '6px',
+                              backgroundColor: ev.isReopened ? '#FFF7ED' : ev.isDisputed ? '#FEF2F2' : '#F8FAFC',
+                              borderLeft: `3px solid ${ev.color || '#CBD5E1'}`,
+                              fontSize: '13px',
+                              color: ev.isReopened ? '#9A3412' : ev.isDisputed ? '#991B1B' : '#334155',
+                              lineHeight: '18px',
+                              whiteSpace: 'pre-line',
+                            }}
+                          >
+                            {ev.note}
+                          </div>
+                        )}
                       </div>
                     </div>
                   );

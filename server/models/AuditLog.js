@@ -18,6 +18,8 @@ const ENTITY_TYPE = Object.freeze({
   COMMENT: 'COMMENT',
   VOTE: 'VOTE',
   ANNOUNCEMENT: 'ANNOUNCEMENT',
+  WARD: 'WARD',
+  COUNCIL: 'COUNCIL',
   SYSTEM: 'SYSTEM',
 });
 
@@ -57,6 +59,14 @@ const ACTION = Object.freeze({
   ANNOUNCEMENT_UPDATED: 'ANNOUNCEMENT_UPDATED',
   ANNOUNCEMENT_DELETED: 'ANNOUNCEMENT_DELETED',
 
+  // Wards & Councils
+  WARD_CREATED: 'WARD_CREATED',
+  WARD_UPDATED: 'WARD_UPDATED',
+  WARD_DELETED: 'WARD_DELETED',
+  COUNCIL_CREATED: 'COUNCIL_CREATED',
+  COUNCIL_UPDATED: 'COUNCIL_UPDATED',
+  COUNCIL_DELETED: 'COUNCIL_DELETED',
+
   // Auth / Accounts
   CITIZEN_REGISTERED: 'CITIZEN_REGISTERED',
   OFFICER_CREATED: 'OFFICER_CREATED',
@@ -75,6 +85,20 @@ const safeJson = (val) => {
   } catch (err) {
     return null;
   }
+};
+
+const parseRowJson = (row) => {
+  if (!row) return row;
+  ['OLD_STATE', 'NEW_STATE', 'DETAILS'].forEach((key) => {
+    if (typeof row[key] === 'string') {
+      try {
+        row[key] = JSON.parse(row[key]);
+      } catch (err) {
+        // preserve original string if not JSON
+      }
+    }
+  });
+  return row;
 };
 
 class AuditLog {
@@ -153,7 +177,7 @@ class AuditLog {
         LIMIT ? OFFSET ?`,
       [entityType, entityId, limit, offset]
     );
-    return rows;
+    return rows.map(parseRowJson);
   }
 
   /**
@@ -176,7 +200,7 @@ class AuditLog {
         LIMIT ? OFFSET ?`,
       [issueId, String(issueId), String(issueId), limit, offset]
     );
-    return rows;
+    return rows.map(parseRowJson);
   }
 
   /**
@@ -247,7 +271,7 @@ class AuditLog {
       [...params, Number(limit), offset]
     );
 
-    return rows;
+    return rows.map(parseRowJson);
   }
 
   /**

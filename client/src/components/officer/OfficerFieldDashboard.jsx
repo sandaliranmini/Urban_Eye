@@ -472,7 +472,10 @@ export default function OfficerFieldDashboard({ user, onNavigate, onCountsChange
 
   const handleSubmitProof = async (rawId, remarks, file) => {
     try {
-      await uploadResolutionProof(rawId, remarks, file);
+      const fd = new FormData();
+      if (file) fd.append('photo', file);
+      if (remarks) fd.append('remarks', remarks);
+      await uploadResolutionProof(rawId, fd);
       setActionNotice('Resolution proof uploaded successfully.');
       fetchIssues();
       setActiveModal(null);

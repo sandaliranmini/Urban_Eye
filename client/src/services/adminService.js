@@ -22,14 +22,14 @@ export const updateOfficer = async (id, data) => {
   return response.data;
 };
 
-export const deleteOfficer = async (id) => {
-  const response = await axiosInstance.delete(`/admin/officers/${id}`);
+export const deleteOfficer = async (id, params = {}) => {
+  const response = await axiosInstance.delete(`/admin/officers/${id}`, { params });
   return response.data;
 };
 
 // Ward + Council management
-export const getAllWards = async () => {
-  const response = await axiosInstance.get('/admin/wards');
+export const getAllWards = async (params = {}) => {
+  const response = await axiosInstance.get('/admin/wards', { params });
   return response.data;
 };
 
@@ -38,8 +38,33 @@ export const createWard = async (data) => {
   return response.data;
 };
 
+export const updateWard = async (id, data) => {
+  const response = await axiosInstance.put(`/admin/wards/${id}`, data);
+  return response.data;
+};
+
+export const deleteWard = async (id) => {
+  const response = await axiosInstance.delete(`/admin/wards/${id}`);
+  return response.data;
+};
+
 export const getAllCouncils = async () => {
   const response = await axiosInstance.get('/admin/councils');
+  return response.data;
+};
+
+export const createCouncil = async (data) => {
+  const response = await axiosInstance.post('/admin/councils', data);
+  return response.data;
+};
+
+export const updateCouncil = async (id, data) => {
+  const response = await axiosInstance.put(`/admin/councils/${id}`, data);
+  return response.data;
+};
+
+export const deleteCouncil = async (id) => {
+  const response = await axiosInstance.delete(`/admin/councils/${id}`);
   return response.data;
 };
 
@@ -77,5 +102,21 @@ export const getAuditLogs = async (filters = {}) => {
 
 export const getAuditStats = async (filters = {}) => {
   const response = await axiosInstance.get('/audit-logs/stats', { params: filters });
+  return response.data;
+};
+
+// Verification Queue
+export const getVerificationQueue = async (params = {}) => {
+  const response = await axiosInstance.get('/admin/verifications', { params });
+  return response.data;
+};
+
+export const approveVerification = async (id, data = {}) => {
+  const response = await axiosInstance.post(`/admin/verifications/${id}/approve`, data);
+  return response.data;
+};
+
+export const rejectVerification = async (id, data = {}) => {
+  const response = await axiosInstance.post(`/admin/verifications/${id}/reject`, data);
   return response.data;
 };

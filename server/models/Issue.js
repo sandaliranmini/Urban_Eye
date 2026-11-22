@@ -12,7 +12,15 @@ const SORTS = {
 };
 
 // Only these fields can be changed by update(); keys are input names, values are column names
-const EDITABLE = { title: 'TITLE', description: 'DESCRIPTION', category: 'CATEGORY', status: 'STATUS' };
+const EDITABLE = {
+  title: 'TITLE',
+  description: 'DESCRIPTION',
+  category: 'CATEGORY',
+  status: 'STATUS',
+  officer_id: 'OFFICER_ID',
+  resolved_at: 'RESOLVED_AT',
+  closure_type: 'CLOSURE_TYPE',
+};
 
 const LIST_COLUMNS = `
   I.ISSUE_ID, I.TITLE, I.DESCRIPTION, I.CATEGORY, I.STATUS, I.IS_EMERGENCY,

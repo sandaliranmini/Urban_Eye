@@ -136,8 +136,8 @@ exports.checkDuplicates = async (req, res) => {
   res.json({ success: true, data: matches });
 };
 
-// Card 8: officers move an Open issue to In Progress.
-// Resolved / Closed / Disputed are NOT settable here: they go through the proof-of-work flow.
+// Card 8: move an Open or Disputed issue to In Progress.
+// Resolved / Closed are NOT settable here: they go through the proof-of-work flow.
 exports.updateStatus = async (req, res) => {
   const id = parseId(req.params.id, 'issue id');
   const body = req.body || {};
@@ -145,11 +145,23 @@ exports.updateStatus = async (req, res) => {
 
   const issue = await Issue.findById(id);
   if (!issue) throw new AppError('Issue not found', 404);
-  if (issue.STATUS !== 'Open') {
-    throw new AppError(`Only Open issues can be moved to In Progress (this one is ${issue.STATUS})`, 409);
+  if (!['Open', 'Disputed'].includes(issue.STATUS)) {
+    throw new AppError(`Only Open or Disputed issues can be moved to In Progress (this one is ${issue.STATUS})`, 409);
   }
 
-  await Issue.update(id, { status: 'In Progress' });
+  const updateFields = { status: 'In Progress' };
+  if (issue.STATUS === 'Disputed') {
+    updateFields.resolved_at = null;
+    updateFields.closure_type = null;
+  }
+
+  await Issue.update(id, updateFields);
+
+  const noteText = body.notes
+    ? String(body.notes).slice(0, 500)
+    : issue.STATUS === 'Disputed'
+    ? 'Issue reopened for rework following citizen dispute'
+    : undefined;
 
   // Record in audit log
   await AuditService.logStatusChange({
@@ -158,12 +170,12 @@ exports.updateStatus = async (req, res) => {
     newStatus: 'In Progress',
     user: req.user,
     req,
-    note: body.notes ? String(body.notes).slice(0, 500) : undefined,
+    note: noteText,
   });
 
   // fire and forget: an email problem must never fail the request
   notifyStatusChange(id, issue.STATUS, 'In Progress', {
-    note: body.notes ? String(body.notes).slice(0, 500) : undefined,
+    note: noteText,
   });
 
   res.json({ success: true, data: await Issue.findById(id) });

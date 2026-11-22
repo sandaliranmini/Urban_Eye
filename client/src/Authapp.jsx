@@ -13,6 +13,10 @@ import ReportIssue from './pages/ReportIssue';
 import IssueList from './pages/IssueList';
 import WardAnnouncements from './components/announcements/WardAnnouncements';
 import AdminAnalyticsDashboard from './components/admin/AdminAnalyticsDashboard';
+import AdminDashboardView from './components/admin/AdminDashboard';
+import VerificationQueue from './components/admin/VerificationQueue';
+import OfficerManagement from './components/admin/OfficerManagement';
+import CouncilWardManagement from './components/admin/CouncilWardManagement';
 import AssignedWardQueue from './components/officer/AssignedWardQueue';
 import OfficerFieldDashboard from './components/officer/OfficerFieldDashboard';
 import axiosInstance from './services/axiosInstance';
@@ -44,7 +48,9 @@ const PAGES = {
   assigned: { label: 'My Assigned Issues', roles: ['field_officer'] },
   issues: { label: 'Ward Issues', roles: ['supervisor', 'admin'] },
   verify: { label: 'Verification Queue', roles: ['supervisor', 'admin'] },
+  officers: { label: 'Officer Management', roles: ['admin'] },
   addOfficer: { label: 'Add Officer', roles: ['admin'] },
+  councils: { label: 'Council & Wards', roles: ['admin'] },
   profile: { label: 'My Profile', roles: ['citizen', 'field_officer', 'supervisor', 'admin'] },
 };
 const canOpen = (role, page) => !!PAGES[page] && PAGES[page].roles.includes(role);
@@ -684,9 +690,9 @@ function Dashboard({ keys }) {
         <main
           className="content"
           style={{
-            maxWidth: isOfficer ? '1280px' : ['assigned', 'issues'].includes(page) ? '1200px' : undefined,
+            maxWidth: isOfficer || role === 'admin' ? '1280px' : ['assigned', 'issues'].includes(page) ? '1200px' : undefined,
             width: '100%',
-            padding: isOfficer ? '28px 32px' : undefined,
+            padding: isOfficer ? '28px 32px' : (role === 'admin' && page === 'home') ? '32px' : undefined,
           }}
         >
           {role === 'citizen' && <VerifyBanner />}
@@ -695,6 +701,8 @@ function Dashboard({ keys }) {
           ) : page === 'home' ? (
             isOfficer ? (
               <OfficerFieldDashboard user={user} onNavigate={setPage} onCountsChange={updateCounts} />
+            ) : role === 'admin' ? (
+              <AdminDashboardView user={user} onNavigate={setPage} />
             ) : (
               <Home role={role} go={setPage} />
             )
@@ -706,10 +714,16 @@ function Dashboard({ keys }) {
             <ReportGate go={setPage} defaultWardId={user.ward_id || ''} />
           ) : page === 'profile' ? (
             <Profile />
+          ) : page === 'officers' ? (
+            <OfficerManagement user={user} onNavigate={setPage} />
           ) : page === 'addOfficer' ? (
-            <AddOfficer />
+            <AddOfficer onNavigate={setPage} />
+          ) : page === 'councils' ? (
+            <CouncilWardManagement user={user} onNavigate={setPage} />
           ) : page === 'assigned' || page === 'issues' ? (
             <AssignedWardQueue user={user} onNavigate={setPage} />
+          ) : page === 'verify' ? (
+            <VerificationQueue user={user} onNavigate={setPage} />
           ) : (
             <Placeholder title={PAGES[page]?.label || 'Page'} />
           )}
@@ -760,7 +774,9 @@ const HOME_TILES = {
     ['announcements', 'Ward Announcements', 'Broadcast and manage ward notices.'],
     ['issues', 'Ward issues', 'All open issues across councils.'],
     ['verify', 'Verification queue', 'Closures waiting for verification.'],
+    ['officers', 'Officer Management', 'Browse, filter, edit, and audit municipal officers.'],
     ['addOfficer', 'Add officer', 'Create an officer account.'],
+    ['councils', 'Council & Wards', 'Manage Dompe Pradeshiya Sabha and constituent wards.'],
   ],
 };
 
@@ -783,7 +799,7 @@ function Home({ role, go }) {
 }
 
 // Admin only: POST /officers
-function AddOfficer() {
+function AddOfficer({ onNavigate }) {
   const { authed } = useAuth();
   const empty = { employee_id: '', full_name: '', email: '', password: '', role: 'Field Officer', council_id: '', ward_id: '', department: '' };
   const [f, setF] = useState(empty);
@@ -839,11 +855,39 @@ function AddOfficer() {
 
   return (
     <form className="form-page" onSubmit={submit} noValidate>
-      <div>
-        <h1>Add officer</h1>
-        <p className="sub">Only administrators can create officer accounts.</p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
+        <div>
+          <h1>Add officer</h1>
+          <p className="sub">Only administrators can create officer accounts.</p>
+        </div>
+        {onNavigate && (
+          <button
+            type="button"
+            className="btn ghost fit"
+            onClick={() => onNavigate('officers')}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+          >
+            ← Back to Officer Directory
+          </button>
+        )}
       </div>
-      <Alert kind="success">{ok}</Alert>
+      {ok && (
+        <Alert kind="success">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+            <span>{ok}</span>
+            {onNavigate && (
+              <button
+                type="button"
+                className="btn fit small"
+                style={{ padding: '4px 10px', fontSize: '12px' }}
+                onClick={() => onNavigate('officers')}
+              >
+                View in Directory →
+              </button>
+            )}
+          </div>
+        </Alert>
+      )}
       <Alert>{error}</Alert>
       <div className="grid2">
         <Field label="Employee ID" value={f.employee_id} onChange={set('employee_id')} error={errors.employee_id} placeholder="e.g. OFF014" />
@@ -1504,7 +1548,7 @@ export function OfficerDashboard() {
   return <Dashboard keys={keys} />;
 }
 
-export const AdminDashboard = () => <Dashboard keys={['home', 'analytics', 'announcements', 'issues', 'verify', 'addOfficer', 'profile']} />;
+export const AdminDashboard = () => <Dashboard keys={['home', 'analytics', 'announcements', 'issues', 'verify', 'officers', 'addOfficer', 'councils', 'profile']} />;
 
 // ---------------------------------------------------------------- styles
 const CSS = `
