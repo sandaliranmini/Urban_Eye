@@ -180,3 +180,104 @@ exports.updateStatus = async (req, res) => {
 
   res.json({ success: true, data: await Issue.findById(id) });
 };
+
+// Bulk move Open or Disputed issues to In Progress
+// PATCH /api/issues/bulk-status
+// Resolved / Closed are NOT settable in bulk: resolution requires individual photographic proof.
+exports.bulkUpdateStatus = async (req, res) => {
+  const body = req.body || {};
+  const { issue_ids, status, notes } = body;
+
+  if (!Array.isArray(issue_ids) || issue_ids.length === 0) {
+    throw new AppError('issue_ids must be a non-empty array of issue IDs', 400);
+  }
+
+  if (status === 'Resolved' || status === 'Closed') {
+    throw new AppError('Bulk status cannot be set to Resolved or Closed. Resolution requires individual photographic proof upload.', 400);
+  }
+
+  if (status !== 'In Progress') {
+    throw new AppError('Bulk status can only be set to "In Progress"', 400);
+  }
+
+  // Validate IDs are positive integers
+  const cleanIds = [];
+  for (const rawId of issue_ids) {
+    const num = Number(rawId);
+    if (Number.isInteger(num) && num > 0) {
+      cleanIds.push(num);
+    }
+  }
+
+  if (cleanIds.length === 0) {
+    throw new AppError('No valid issue IDs provided', 400);
+  }
+
+  const userWardId = req.user?.ward_id;
+  const isFieldOfficer = req.user?.role === 'field_officer' || req.user?.role === 'officer';
+
+  const updatedIds = [];
+  const skippedIds = [];
+
+  for (const id of cleanIds) {
+    try {
+      const issue = await Issue.findById(id);
+      if (!issue) {
+        skippedIds.push({ id, reason: 'Issue not found' });
+        continue;
+      }
+
+      // Check ward scoping if caller is ward-bound officer
+      if (isFieldOfficer && userWardId && Number(issue.WARD_ID) !== Number(userWardId)) {
+        skippedIds.push({ id, reason: 'Issue does not belong to your assigned ward' });
+        continue;
+      }
+
+      // Allowed transitions: Open or Disputed -> In Progress
+      if (!['Open', 'Disputed'].includes(issue.STATUS)) {
+        skippedIds.push({ id, reason: `Status is ${issue.STATUS}; only Open or Disputed can be moved to In Progress` });
+        continue;
+      }
+
+      const updateFields = { status: 'In Progress' };
+      if (issue.STATUS === 'Disputed') {
+        updateFields.resolved_at = null;
+        updateFields.closure_type = null;
+      }
+
+      await Issue.update(id, updateFields);
+
+      const noteText = notes
+        ? String(notes).slice(0, 500)
+        : issue.STATUS === 'Disputed'
+        ? 'Issue reopened for rework following citizen dispute'
+        : 'Bulk transitioned to In Progress by officer';
+
+      await AuditService.logStatusChange({
+        issueId: id,
+        oldStatus: issue.STATUS,
+        newStatus: 'In Progress',
+        user: req.user,
+        req,
+        note: noteText,
+      }).catch(() => {});
+
+      notifyStatusChange(id, issue.STATUS, 'In Progress', {
+        note: noteText,
+      });
+
+      updatedIds.push(id);
+    } catch (err) {
+      skippedIds.push({ id, reason: err.message });
+    }
+  }
+
+  res.json({
+    success: true,
+    message: `Successfully moved ${updatedIds.length} issue(s) to In Progress`,
+    updated_count: updatedIds.length,
+    updated_ids: updatedIds,
+    skipped_count: skippedIds.length,
+    skipped: skippedIds,
+  });
+};

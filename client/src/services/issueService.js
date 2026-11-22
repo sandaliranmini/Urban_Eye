@@ -18,7 +18,16 @@ export const getIssueById = async (id) => {
 };
 
 export const updateIssueStatus = async (id, status, notes) => {
-  const response = await axiosInstance.put(`/issues/${id}/status`, {
+  const response = await axiosInstance.patch(`/issues/${id}/status`, {
+    status,
+    notes,
+  });
+  return response.data;
+};
+
+export const bulkUpdateIssueStatus = async (issueIds, status = 'In Progress', notes) => {
+  const response = await axiosInstance.patch('/issues/bulk-status', {
+    issue_ids: issueIds,
     status,
     notes,
   });

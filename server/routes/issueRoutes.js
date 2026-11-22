@@ -26,9 +26,14 @@ router.get('/ward/:wardId', issues.issuesByWard);
 
 router.post('/check-duplicates', authenticate, issues.checkDuplicates);
 
+// Bulk status update must come before '/:id'
+router.patch('/bulk-status', authenticate, requireRole('officer', 'field_officer', 'supervisor', 'admin'), issues.bulkUpdateStatus);
+router.put('/bulk-status', authenticate, requireRole('officer', 'field_officer', 'supervisor', 'admin'), issues.bulkUpdateStatus);
+
 router.get('/:id', issues.getIssue);
 router.post('/', authenticate, requireVerifiedEmail, uploadPhoto, issues.createIssue);
 router.put('/:id/status', authenticate, requireRole('officer', 'field_officer', 'supervisor', 'admin'), issues.updateStatus);
+router.patch('/:id/status', authenticate, requireRole('officer', 'field_officer', 'supervisor', 'admin'), issues.updateStatus);
 
 
 
