@@ -31,6 +31,9 @@ router.post('/verifications/:id/reject', requireRole('admin', 'supervisor'), adm
 router.get('/officers', requireRole('admin'), admin.getAllOfficers);
 router.post('/officers', requireRole('admin'), admin.createOfficer);
 router.put('/officers/:id', requireRole('admin'), admin.updateOfficer);
+router.patch('/officers/:id', requireRole('admin'), admin.updateOfficer);
+router.patch('/officers/:id/status', requireRole('admin'), admin.patchOfficerStatus);
+router.post('/officers/:id/reset-password', requireRole('admin'), admin.resetOfficerPassword);
 router.delete('/officers/:id', requireRole('admin'), admin.deleteOfficer);
 
 module.exports = router;

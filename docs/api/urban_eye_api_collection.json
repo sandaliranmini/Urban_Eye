@@ -1,0 +1,362 @@
+{
+  "info": {
+    "_postman_id": "c1f7b82e-9d2a-4a6c-9418-5a2e9b884102",
+    "name": "Urban Eye - API & RBAC Security Collection",
+    "description": "Comprehensive Postman test collection for Urban Eye local governance platform. Validates Councils, Wards, Officer Management, Bulk Status updates, and strict RBAC enforcement (403 Forbidden for non-admin callers).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5000/api",
+      "type": "string"
+    },
+    {
+      "key": "adminToken",
+      "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+      "type": "string"
+    },
+    {
+      "key": "officerToken",
+      "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+      "type": "string"
+    },
+    {
+      "key": "citizenToken",
+      "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. RBAC Security Gates (Non-Admin 403)",
+      "item": [
+        {
+          "name": "Citizen attempts Admin Ward Access -> 403 Forbidden",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{citizenToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"council_id\": 1,\n  \"ward_name\": \"Unauthorized Ward\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/wards",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "wards"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 403 Forbidden for citizen token', function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Field Officer attempts Council Modification -> 403 Forbidden",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{officerToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"council_name\": \"Malicious Alteration\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/councils/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "councils", "1"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 403 Forbidden for non-admin officer', function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "2. Councils & Wards CRUD",
+      "item": [
+        {
+          "name": "Get Councils List",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/councils",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "councils"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Electoral Ward (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"council_id\": 1,\n  \"ward_name\": \"Ward 26 - Kirindiwela Test\",\n  \"description\": \"Newly gazetted constituent ward\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/wards",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "wards"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201 Created', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Officer Management & Password Reset",
+      "item": [
+        {
+          "name": "Get All Officers",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/officers",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "officers"]
+            }
+          }
+        },
+        {
+          "name": "Patch Officer Status (Deactivate / Reactivate)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"is_active\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/officers/2/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "officers", "2", "status"]
+            }
+          }
+        },
+        {
+          "name": "Reset Officer Password (Temporary Password)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/officers/2/reset-password",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "officers", "2", "reset-password"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Returns temporary password and force_change_password flag', function () {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.success).to.be.true;",
+                  "    pm.expect(jsonData.data.temporary_password).to.be.a('string');",
+                  "    pm.expect(jsonData.data.force_change_password).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. Bulk Status Operations",
+      "item": [
+        {
+          "name": "Bulk Transition to In Progress",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{officerToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"issue_ids\": [1, 2, 3],\n  \"status\": \"In Progress\",\n  \"notes\": \"Field crew dispatched for bulk repair batch\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/issues/bulk-status",
+              "host": ["{{baseUrl}}"],
+              "path": ["issues", "bulk-status"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reject Bulk Resolution without Proof -> 400 Bad Request",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{officerToken}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"issue_ids\": [1, 2],\n  \"status\": \"Resolved\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/issues/bulk-status",
+              "host": ["{{baseUrl}}"],
+              "path": ["issues", "bulk-status"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Rejects bulk Resolved with 400', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -35,6 +35,7 @@ app.use('/api/resolutions', require('./routes/resolutionRoutes'));
 app.use('/api/audit-logs', require('./routes/auditRoutes'));
 app.use('/api/announcements', require('./routes/announcementRoutes'));
 app.use('/api/admin', require('./routes/adminRoutes'));
+app.use('/api/officers', require('./routes/adminRoutes'));
 
 app.get('/api/health', async (req, res) => {
   try {

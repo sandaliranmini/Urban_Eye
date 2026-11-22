@@ -358,7 +358,7 @@ router.post('/officer/login', async (req, res) => {
 
     const id = identifier.trim();
     const [rows] = await pool.query(
-      `SELECT OFFICER_ID, COUNCIL_ID, WARD_ID, FULL_NAME, PASSWORD_HASH, ROLE, IS_ACTIVE
+      `SELECT OFFICER_ID, COUNCIL_ID, WARD_ID, FULL_NAME, PASSWORD_HASH, ROLE, IS_ACTIVE, FORCE_CHANGE_PASSWORD
          FROM OFFICER WHERE LOWER(EMAIL) = ? OR EMPLOYEE_ID = ?`,
       [id.toLowerCase(), id]
     );
@@ -381,6 +381,7 @@ router.post('/officer/login', async (req, res) => {
         full_name: officer.FULL_NAME,
         ward_id: officer.WARD_ID,
         council_id: officer.COUNCIL_ID,
+        force_change_password: Boolean(officer.FORCE_CHANGE_PASSWORD),
       },
     });
   } catch (err) {
@@ -401,7 +402,7 @@ router.get('/me', authenticate, async (req, res) => {
     if (req.user.kind === 'officer') {
       const [rows] = await pool.query(
         `SELECT o.OFFICER_ID, o.WARD_ID, o.COUNCIL_ID, o.EMPLOYEE_ID, o.FULL_NAME, o.EMAIL,
-                o.DEPARTMENT, o.ROLE, o.IS_ACTIVE, c.COUNCIL_NAME, w.WARD_NAME
+                o.DEPARTMENT, o.ROLE, o.IS_ACTIVE, o.FORCE_CHANGE_PASSWORD, c.COUNCIL_NAME, w.WARD_NAME
            FROM OFFICER o
            JOIN COUNCIL c ON c.COUNCIL_ID = o.COUNCIL_ID
            LEFT JOIN WARD w ON w.WARD_ID = o.WARD_ID
@@ -425,6 +426,7 @@ router.get('/me', authenticate, async (req, res) => {
           ward_name: o.WARD_NAME,
           council_id: o.COUNCIL_ID,
           council_name: o.COUNCIL_NAME,
+          force_change_password: Boolean(o.FORCE_CHANGE_PASSWORD),
         },
       });
     }
@@ -562,7 +564,11 @@ router.post('/me/password', authenticate, async (req, res) => {
     }
 
     const hash = await bcrypt.hash(new_password, SALT_ROUNDS);
-    await pool.query(`UPDATE ${t} SET PASSWORD_HASH = ? WHERE ${id} = ?`, [hash, req.user.id]);
+    if (req.user.kind === 'officer') {
+      await pool.query(`UPDATE OFFICER SET PASSWORD_HASH = ?, FORCE_CHANGE_PASSWORD = 0 WHERE OFFICER_ID = ?`, [hash, req.user.id]);
+    } else {
+      await pool.query(`UPDATE CITIZEN SET PASSWORD_HASH = ? WHERE CITIZEN_ID = ?`, [hash, req.user.id]);
+    }
     return res.json({ message: 'Password updated' });
   } catch (err) {
     console.error('Change password error:', err);
@@ -629,8 +635,8 @@ router.post('/officers', authenticate, requireRole('admin'), async (req, res) =>
 
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
     const [result] = await pool.query(
-      `INSERT INTO OFFICER (COUNCIL_ID, WARD_ID, EMPLOYEE_ID, FULL_NAME, EMAIL, PASSWORD_HASH, DEPARTMENT, ROLE)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO OFFICER (COUNCIL_ID, WARD_ID, EMPLOYEE_ID, FULL_NAME, EMAIL, PASSWORD_HASH, DEPARTMENT, ROLE, IS_ACTIVE, FORCE_CHANGE_PASSWORD)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1)`,
       [
         councilId,
         wardId,

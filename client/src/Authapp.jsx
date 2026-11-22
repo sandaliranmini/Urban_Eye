@@ -1271,7 +1271,15 @@ function Profile() {
           }}
         />
       )}
-      {view === 'password' && <ChangePassword onCancel={() => setView('view')} onSaved={() => done('Password updated')} />}
+      {view === 'password' && (
+        <ChangePassword
+          onCancel={() => setView('view')}
+          onSaved={() => {
+            updateUser({ force_change_password: false });
+            done('Password updated');
+          }}
+        />
+      )}
     </div>
   );
 }

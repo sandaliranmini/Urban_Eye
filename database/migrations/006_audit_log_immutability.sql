@@ -1,0 +1,27 @@
+-- Migration: 006_audit_log_immutability.sql
+-- Enforces database-level immutability on the AUDIT_LOG table.
+-- Prevents UPDATE and DELETE operations to guarantee tamper-proof audit trails.
+
+USE URBAN_EYE;
+
+DROP TRIGGER IF EXISTS TRG_AUDIT_LOG_PREVENT_UPDATE;
+DELIMITER $$
+CREATE TRIGGER TRG_AUDIT_LOG_PREVENT_UPDATE
+BEFORE UPDATE ON AUDIT_LOG
+FOR EACH ROW
+BEGIN
+    SIGNAL SQLSTATE '45000'
+    SET MESSAGE_TEXT = 'AUDIT_LOG records are immutable and cannot be updated or altered.';
+END$$
+DELIMITER ;
+
+DROP TRIGGER IF EXISTS TRG_AUDIT_LOG_PREVENT_DELETE;
+DELIMITER $$
+CREATE TRIGGER TRG_AUDIT_LOG_PREVENT_DELETE
+BEFORE DELETE ON AUDIT_LOG
+FOR EACH ROW
+BEGIN
+    SIGNAL SQLSTATE '45000'
+    SET MESSAGE_TEXT = 'AUDIT_LOG records are immutable and cannot be deleted.';
+END$$
+DELIMITER ;

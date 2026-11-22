@@ -22,6 +22,16 @@ export const updateOfficer = async (id, data) => {
   return response.data;
 };
 
+export const patchOfficerStatus = async (id, isActive) => {
+  const response = await axiosInstance.patch(`/admin/officers/${id}/status`, { is_active: isActive });
+  return response.data;
+};
+
+export const resetOfficerPassword = async (id) => {
+  const response = await axiosInstance.post(`/admin/officers/${id}/reset-password`);
+  return response.data;
+};
+
 export const deleteOfficer = async (id, params = {}) => {
   const response = await axiosInstance.delete(`/admin/officers/${id}`, { params });
   return response.data;

@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import axiosInstance from '../../services/axiosInstance';
-import { uploadResolutionProof, updateIssueStatus } from '../../services/issueService';
+import { uploadResolutionProof, updateIssueStatus, bulkUpdateIssueStatus } from '../../services/issueService';
 
 function formatTimeAgo(dateString) {
   if (!dateString) return 'Recently';
@@ -180,6 +180,24 @@ export default function AssignedWardQueue({ user, onNavigate }) {
   const [activeModal, setActiveModal] = useState(null); // { type: 'inspect'|'details'|'proof'|'bulk', issue }
   const [alertDismissed, setAlertDismissed] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
+  const [selectedIds, setSelectedIds] = useState([]);
+
+  const toggleSelectIssue = (rawId) => {
+    setSelectedIds((prev) =>
+      prev.includes(rawId) ? prev.filter((id) => id !== rawId) : [...prev, rawId]
+    );
+  };
+
+  const handleSelectAllOpen = () => {
+    const eligibleItems = filteredIssues.filter(
+      (i) => (i.status === 'OPEN' || i.status === 'EMERGENCY' || i.status === 'DISPUTED') && i.rawId
+    );
+    if (selectedIds.length === eligibleItems.length && eligibleItems.length > 0) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(eligibleItems.map((i) => i.rawId));
+    }
+  };
 
   // Reset page whenever search or filter selection changes
   useEffect(() => {
@@ -298,29 +316,35 @@ export default function AssignedWardQueue({ user, onNavigate }) {
       });
   }, [issues, searchTerm, selectedCategory, selectedStatus, selectedSort]);
 
-  // Bulk action in database
+  // Bulk action in database via dedicated PATCH /api/issues/bulk-status
   const handleBulkInProgress = async () => {
-    const openIssues = issues.filter((i) => i.status === 'OPEN' || i.status === 'EMERGENCY');
-    if (openIssues.length === 0) {
-      showToast('No open issues to transition.');
+    const targetIssues = selectedIds.length > 0
+      ? issues.filter((i) => selectedIds.includes(i.rawId))
+      : issues.filter((i) => i.status === 'OPEN' || i.status === 'EMERGENCY' || i.status === 'DISPUTED');
+
+    const targetRawIds = targetIssues.map((i) => i.rawId).filter(Boolean);
+
+    if (targetRawIds.length === 0) {
+      showToast('No eligible open or disputed issues to transition.');
       return;
     }
 
     try {
-      await Promise.allSettled(
-        openIssues.map((item) => updateIssueStatus(item.rawId, 'In Progress'))
-      );
+      const res = await bulkUpdateIssueStatus(targetRawIds, 'In Progress');
+      const updatedCount = res.updated_count || targetRawIds.length;
+
       setIssues((prev) =>
         prev.map((item) =>
-          item.status === 'OPEN' || item.status === 'EMERGENCY'
+          targetRawIds.includes(item.rawId)
             ? { ...item, status: 'IN PROGRESS' }
             : item
         )
       );
-      showToast(`${openIssues.length} open issues moved to "In Progress" in database!`);
+      setSelectedIds([]);
+      showToast(`${updatedCount} issue(s) moved to "In Progress" via bulk API!`);
     } catch (err) {
       console.error('Bulk update error:', err);
-      showToast('Failed to complete bulk update in database.');
+      showToast(err.response?.data?.message || 'Failed to complete bulk update in database.');
     }
   };
 
@@ -631,12 +655,133 @@ export default function AssignedWardQueue({ user, onNavigate }) {
           </div>
         </div>
 
-        {/* Right Side: Bulk Action Button */}
-        <button onClick={handleBulkInProgress} style={styles.bulkActionBtn} className="officer-bulk-btn">
-          <BoltIcon className="w-4 h-4 text-[#17324D] shrink-0" />
-          <span>Bulk In-Progress</span>
-        </button>
+        {/* Right Side: Select All & Bulk Action Button */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button
+            onClick={handleSelectAllOpen}
+            style={{
+              background: '#F1F5F9',
+              border: '1px solid #CBD5E1',
+              borderRadius: '6px',
+              padding: '8px 12px',
+              fontSize: '13px',
+              fontWeight: 500,
+              color: '#334155',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+          >
+            <span>{selectedIds.length > 0 ? 'Deselect All' : 'Select All Open'}</span>
+          </button>
+          <button onClick={handleBulkInProgress} style={styles.bulkActionBtn} className="officer-bulk-btn">
+            <BoltIcon className="w-4 h-4 text-[#17324D] shrink-0" />
+            <span>Bulk In-Progress</span>
+          </button>
+        </div>
       </div>
+
+      {/* Temporary Password Security Banner */}
+      {user?.force_change_password && (
+        <div
+          style={{
+            background: '#FEF3C7',
+            border: '1px solid #F59E0B',
+            borderRadius: '8px',
+            padding: '12px 18px',
+            marginBottom: '16px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '12px',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ fontSize: '18px' }}>⚠️</span>
+            <div>
+              <strong style={{ color: '#92400E', fontSize: '14px' }}>Password Update Required:</strong>
+              <span style={{ color: '#78350F', fontSize: '13px', marginLeft: '6px' }}>
+                You logged in with a temporary password. Please change your password in your profile to secure your account.
+              </span>
+            </div>
+          </div>
+          {onNavigate && (
+            <button
+              onClick={() => onNavigate('profile')}
+              style={{
+                background: '#D97706',
+                color: '#FFFFFF',
+                border: 'none',
+                borderRadius: '6px',
+                padding: '6px 14px',
+                fontSize: '13px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              Update Password
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Bulk Selection Floating / Action Bar */}
+      {selectedIds.length > 0 && (
+        <div
+          style={{
+            background: '#17324D',
+            borderRadius: '8px',
+            padding: '10px 18px',
+            marginBottom: '14px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            color: '#FFFFFF',
+            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14px', fontWeight: 600 }}>
+            <span>{selectedIds.length} open issue(s) selected</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <button
+              onClick={handleBulkInProgress}
+              style={{
+                background: '#059669',
+                color: '#FFFFFF',
+                border: 'none',
+                borderRadius: '6px',
+                padding: '6px 14px',
+                fontSize: '13px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+            >
+              <BoltIcon className="w-4 h-4 text-white" />
+              <span>Mark Selected In-Progress</span>
+            </button>
+            <button
+              onClick={() => setSelectedIds([])}
+              style={{
+                background: 'transparent',
+                color: '#94A3B8',
+                border: '1px solid #334155',
+                borderRadius: '6px',
+                padding: '6px 12px',
+                fontSize: '13px',
+                cursor: 'pointer',
+              }}
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Issue Queue List */}
       <div style={styles.issueQueueList}>
@@ -662,8 +807,29 @@ export default function AssignedWardQueue({ user, onNavigate }) {
                 ...(isEmergency ? styles.emergencyCard : styles.normalCard),
               }}
             >
-              {/* Left Column: Icon Thumbnail + Details */}
+              {/* Left Column: Checkbox + Icon Thumbnail + Details */}
               <div style={styles.cardLeftCol} className="officer-card-left">
+                {/* Row Checkbox for Bulk Actions */}
+                <div style={{ display: 'flex', alignItems: 'center', paddingRight: '10px' }}>
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.includes(item.rawId)}
+                    onChange={() => toggleSelectIssue(item.rawId)}
+                    disabled={!(isOpen || isEmergency || item.status === 'DISPUTED')}
+                    title={
+                      isOpen || isEmergency || item.status === 'DISPUTED'
+                        ? 'Select for bulk action'
+                        : 'Only Open or Disputed issues can be selected'
+                    }
+                    style={{
+                      width: '18px',
+                      height: '18px',
+                      cursor: isOpen || isEmergency || item.status === 'DISPUTED' ? 'pointer' : 'not-allowed',
+                      accentColor: '#17324D',
+                    }}
+                  />
+                </div>
+
                 {/* Thumbnail Icon Box */}
                 <div
                   style={{

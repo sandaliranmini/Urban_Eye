@@ -631,6 +631,7 @@ exports.getAllOfficers = async (req, res, next) => {
          o.DEPARTMENT,
          o.ROLE,
          o.IS_ACTIVE,
+         o.FORCE_CHANGE_PASSWORD,
          o.CREATED_AT
        FROM OFFICER o
        JOIN COUNCIL c ON c.COUNCIL_ID = o.COUNCIL_ID
@@ -678,8 +679,8 @@ exports.createOfficer = async (req, res, next) => {
     const passwordHash = await bcrypt.hash(String(password), 10);
 
     const [result] = await db.query(
-      `INSERT INTO OFFICER (COUNCIL_ID, WARD_ID, EMPLOYEE_ID, FULL_NAME, EMAIL, PASSWORD_HASH, DEPARTMENT, ROLE, IS_ACTIVE)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+      `INSERT INTO OFFICER (COUNCIL_ID, WARD_ID, EMPLOYEE_ID, FULL_NAME, EMAIL, PASSWORD_HASH, DEPARTMENT, ROLE, IS_ACTIVE, FORCE_CHANGE_PASSWORD)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1)`,
       [
         effectiveCouncilId,
         effectiveWardId,
@@ -693,7 +694,7 @@ exports.createOfficer = async (req, res, next) => {
     );
 
     const [newOfficer] = await db.query(
-      `SELECT o.OFFICER_ID, o.EMPLOYEE_ID, o.FULL_NAME, o.EMAIL, o.DEPARTMENT, o.ROLE, o.IS_ACTIVE, o.WARD_ID, w.WARD_NAME, c.COUNCIL_NAME
+      `SELECT o.OFFICER_ID, o.EMPLOYEE_ID, o.FULL_NAME, o.EMAIL, o.DEPARTMENT, o.ROLE, o.IS_ACTIVE, o.FORCE_CHANGE_PASSWORD, o.WARD_ID, w.WARD_NAME, c.COUNCIL_NAME
          FROM OFFICER o
          JOIN COUNCIL c ON c.COUNCIL_ID = o.COUNCIL_ID
          LEFT JOIN WARD w ON w.WARD_ID = o.WARD_ID
@@ -815,6 +816,108 @@ exports.deleteOfficer = async (req, res, next) => {
     }
 
     res.json({ success: true, message: 'Officer deactivated successfully' });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Patch officer active/inactive status
+ * PATCH /api/admin/officers/:id/status
+ */
+exports.patchOfficerStatus = async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 1) {
+      throw new AppError('Valid officer ID required', 400);
+    }
+
+    const { is_active } = req.body || {};
+    if (is_active === undefined) {
+      throw new AppError('is_active boolean is required', 400);
+    }
+
+    const activeVal = is_active ? 1 : 0;
+    const [result] = await db.query('UPDATE OFFICER SET IS_ACTIVE = ? WHERE OFFICER_ID = ?', [activeVal, id]);
+    if (result.affectedRows === 0) {
+      throw new AppError('Officer not found', 404);
+    }
+
+    const [officer] = await db.query(
+      `SELECT o.OFFICER_ID, o.EMPLOYEE_ID, o.FULL_NAME, o.EMAIL, o.DEPARTMENT, o.ROLE, o.IS_ACTIVE, o.FORCE_CHANGE_PASSWORD, o.WARD_ID
+         FROM OFFICER o WHERE o.OFFICER_ID = ?`,
+      [id]
+    );
+
+    await AuditService.logAction({
+      entityType: 'OFFICER',
+      entityId: id,
+      action: activeVal ? 'OFFICER_REACTIVATED' : 'OFFICER_DEACTIVATED',
+      user: req.user,
+      req,
+      details: { officer_id: id, employee_id: officer[0]?.EMPLOYEE_ID, is_active: Boolean(activeVal) },
+    }).catch(() => {});
+
+    res.json({
+      success: true,
+      message: `Officer ${officer[0]?.EMPLOYEE_ID || id} ${activeVal ? 'reactivated' : 'deactivated'} successfully`,
+      data: officer[0],
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Reset officer temporary password
+ * POST /api/admin/officers/:id/reset-password
+ */
+exports.resetOfficerPassword = async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 1) {
+      throw new AppError('Valid officer ID required', 400);
+    }
+
+    const [rows] = await db.query(
+      'SELECT OFFICER_ID, EMPLOYEE_ID, FULL_NAME, EMAIL, ROLE, IS_ACTIVE FROM OFFICER WHERE OFFICER_ID = ?',
+      [id]
+    );
+    const officer = rows[0];
+    if (!officer) {
+      throw new AppError('Officer not found', 404);
+    }
+
+    // Generate secure temporary password
+    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+    const temporaryPassword = `Urban#${randomSuffix}!`;
+    const passwordHash = await bcrypt.hash(temporaryPassword, 10);
+
+    await db.query(
+      'UPDATE OFFICER SET PASSWORD_HASH = ?, FORCE_CHANGE_PASSWORD = 1 WHERE OFFICER_ID = ?',
+      [passwordHash, id]
+    );
+
+    await AuditService.logAction({
+      entityType: 'OFFICER',
+      entityId: id,
+      action: 'OFFICER_PASSWORD_RESET',
+      user: req.user,
+      req,
+      details: { officer_id: id, employee_id: officer.EMPLOYEE_ID, reset_by: req.user?.id },
+    }).catch(() => {});
+
+    res.json({
+      success: true,
+      message: `Password reset successfully for officer ${officer.FULL_NAME}`,
+      data: {
+        officer_id: officer.OFFICER_ID,
+        employee_id: officer.EMPLOYEE_ID,
+        full_name: officer.FULL_NAME,
+        temporary_password: temporaryPassword,
+        force_change_password: true,
+      },
+    });
   } catch (err) {
     next(err);
   }

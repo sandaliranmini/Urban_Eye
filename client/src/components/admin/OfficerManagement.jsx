@@ -3,6 +3,8 @@ import {
   getAllOfficers,
   createOfficer,
   updateOfficer,
+  patchOfficerStatus,
+  resetOfficerPassword,
   deleteOfficer,
   getAllWards,
   getAllCouncils,
@@ -158,17 +160,37 @@ export default function OfficerManagement({ user, onNavigate }) {
     }
   };
 
-  // Quick Toggle Active Status
+  // Quick Toggle Active Status via dedicated PATCH /api/admin/officers/:id/status
   const handleToggleActive = async (officer) => {
     const newStatus = officer.IS_ACTIVE ? 0 : 1;
     try {
-      await updateOfficer(officer.OFFICER_ID, { is_active: newStatus });
+      await patchOfficerStatus(officer.OFFICER_ID, Boolean(newStatus));
       showToast(
         `Officer ${officer.EMPLOYEE_ID} marked as ${newStatus ? 'Active' : 'Inactive'}.`
       );
       fetchData();
     } catch (err) {
       alert(err.response?.data?.message || err.message || 'Failed to change officer status.');
+    }
+  };
+
+  // Reset Temporary Password
+  const [resetModalData, setResetModalData] = useState(null);
+
+  const handleResetPassword = async (officer) => {
+    if (!window.confirm(`Generate a temporary password for officer ${officer.FULL_NAME} (${officer.EMPLOYEE_ID})? They will be forced to change it on their next login.`)) {
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const res = await resetOfficerPassword(officer.OFFICER_ID);
+      setResetModalData(res.data);
+      showToast(`Temporary password generated for ${officer.EMPLOYEE_ID}!`);
+      fetchData();
+    } catch (err) {
+      alert(err.response?.data?.message || err.message || 'Failed to reset officer password.');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -490,6 +512,25 @@ export default function OfficerManagement({ user, onNavigate }) {
 
                         <button
                           type="button"
+                          style={{
+                            ...styles.actionBtnEdit,
+                            background: '#FEF3C7',
+                            borderColor: '#FDE68A',
+                            color: '#92400E',
+                          }}
+                          onClick={() => handleResetPassword(item)}
+                          title="Reset temporary password (forces change on login)"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <circle cx="7.5" cy="15.5" r="5.5" />
+                            <path d="m21 2-9.6 9.6" />
+                            <path d="m15.5 7.5 3 3" />
+                          </svg>
+                          <span>Reset PW</span>
+                        </button>
+
+                        <button
+                          type="button"
                           style={styles.actionBtnDelete}
                           onClick={() => handleOpenDelete(item)}
                           title="Deactivate or remove officer"
@@ -699,6 +740,82 @@ export default function OfficerManagement({ user, onNavigate }) {
                 onClick={() => setActiveModal(null)}
               >
                 Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* RESET PASSWORD RESULT MODAL */}
+      {resetModalData && (
+        <div style={modalStyles.backdrop} onClick={() => setResetModalData(null)}>
+          <div style={modalStyles.modal} onClick={(e) => e.stopPropagation()}>
+            <div style={modalStyles.header}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ ...modalStyles.editIconBadge, background: '#FEF3C7', borderColor: '#FDE68A' }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#D97706" strokeWidth="2.5">
+                    <circle cx="7.5" cy="15.5" r="5.5" />
+                    <path d="m21 2-9.6 9.6" />
+                    <path d="m15.5 7.5 3 3" />
+                  </svg>
+                </span>
+                <h3 style={modalStyles.title}>Temporary Password Generated</h3>
+              </div>
+              <button style={modalStyles.closeBtn} onClick={() => setResetModalData(null)}>✕</button>
+            </div>
+
+            <p style={modalStyles.sub}>
+              A new temporary password has been set for <strong>{resetModalData.full_name}</strong> ({resetModalData.employee_id}).
+              Provide these temporary credentials to the officer. The system will force them to set a new password on their next login.
+            </p>
+
+            <div
+              style={{
+                background: '#F8FAFC',
+                border: '2px dashed #CBD5E1',
+                borderRadius: '8px',
+                padding: '16px',
+                margin: '16px 0',
+                textAlign: 'center',
+              }}
+            >
+              <div style={{ fontSize: '12px', fontWeight: 600, color: '#64748B', marginBottom: '6px', textTransform: 'uppercase' }}>
+                Temporary Password
+              </div>
+              <div
+                style={{
+                  fontFamily: 'monospace',
+                  fontSize: '22px',
+                  fontWeight: 700,
+                  color: '#17324D',
+                  letterSpacing: '1px',
+                  userSelect: 'all',
+                }}
+              >
+                {resetModalData.temporary_password}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '16px' }}>
+              <button
+                type="button"
+                style={{
+                  ...modalStyles.saveBtn,
+                  background: '#17324D',
+                }}
+                onClick={() => {
+                  navigator.clipboard.writeText(resetModalData.temporary_password);
+                  showToast('Temporary password copied to clipboard!');
+                }}
+              >
+                Copy Password
+              </button>
+              <button
+                type="button"
+                style={modalStyles.cancelBtn}
+                onClick={() => setResetModalData(null)}
+              >
+                Close
               </button>
             </div>
           </div>
