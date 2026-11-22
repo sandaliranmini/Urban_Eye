@@ -131,10 +131,14 @@ async function seedIssues() {
         title: 'Broken Heavy Tree Branch on Electrical Line',
         description: 'Bough broken off ancient bo-tree resting against secondary electrical wires. Needs municipal tree pruning crew.',
         category: 'Other',
-        status: 'Open',
+        status: 'Disputed',
         is_emergency: 0,
-        priority_score: 40,
+        priority_score: 80,
         before_photo: 'https://images.unsplash.com/photo-1502082553048-f009c37129b9?w=600&auto=format&fit=crop&q=80',
+        after_photo: 'https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?w=600&auto=format&fit=crop&q=80',
+        proof_remarks: 'Pruned peripheral boughs. Cleared ground walking path.',
+        dispute_photo: 'https://images.unsplash.com/photo-1502082553048-f009c37129b9?w=600&auto=format&fit=crop&q=80',
+        dispute_remarks: 'Pruning crew only cut small ground branches. Heavy 4-meter bough is still resting directly across high voltage wires. Still a major hazard!',
         votes: 21,
         created_minutes_ago: 5760,
       },
@@ -144,10 +148,14 @@ async function seedIssues() {
         title: 'Overflowing Municipal Bins at Central Bazaar',
         description: 'Three 240L municipal garbage receptacles overflowing. Odor spreading to nearby food stalls.',
         category: 'Waste Management',
-        status: 'Open',
+        status: 'Closed',
+        closure_type: 'Citizen Confirmed',
         is_emergency: 0,
         priority_score: 50,
         before_photo: 'https://images.unsplash.com/photo-1530587191325-3db32d826c18?w=600&auto=format&fit=crop&q=80',
+        after_photo: 'https://images.unsplash.com/photo-1532996122724-e3c354a0b15b?w=600&auto=format&fit=crop&q=80',
+        proof_remarks: 'Refuse compactor dispatched. Receptacles emptied, washed, and disinfected.',
+        citizen_confirm_remarks: 'Checked early morning. Bins were thoroughly cleaned and surroundings swept. Thank you!',
         votes: 22,
         created_minutes_ago: 6000,
       },
@@ -182,8 +190,8 @@ async function seedIssues() {
     for (const item of issuesData) {
       // Insert issue
       const [issueRes] = await conn.query(
-        `INSERT INTO ISSUE (CITIZEN_ID, WARD_ID, OFFICER_ID, TITLE, DESCRIPTION, CATEGORY, STATUS, IS_EMERGENCY, PRIORITY_SCORE, BEFORE_PHOTO, CREATED_AT)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW() - INTERVAL ? MINUTE)`,
+        `INSERT INTO ISSUE (CITIZEN_ID, WARD_ID, OFFICER_ID, TITLE, DESCRIPTION, CATEGORY, STATUS, CLOSURE_TYPE, IS_EMERGENCY, PRIORITY_SCORE, BEFORE_PHOTO, CREATED_AT)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW() - INTERVAL ? MINUTE)`,
         [
           item.citizen_id,
           item.ward_id,
@@ -192,6 +200,7 @@ async function seedIssues() {
           item.description,
           item.category,
           item.status,
+          item.closure_type || null,
           item.is_emergency,
           item.priority_score,
           item.before_photo,
@@ -220,18 +229,33 @@ async function seedIssues() {
         );
       }
 
-      // Resolution proof if Resolved
-      if (item.status === 'Resolved' && item.after_photo) {
+      // Resolution proof & verification records
+      if (['Resolved', 'Disputed', 'Closed'].includes(item.status) && item.after_photo) {
         const [proofRes] = await conn.query(
-          `INSERT INTO RESOLUTION_PROOF (ISSUE_ID, OFFICER_ID, AFTER_PHOTO, REMARKS)
-           VALUES (?, ?, ?, ?)`,
-          [issueId, officer1.OFFICER_ID, item.after_photo, item.proof_remarks || 'Work completed.']
+          `INSERT INTO RESOLUTION_PROOF (ISSUE_ID, OFFICER_ID, AFTER_PHOTO, REMARKS, SUBMITTED_AT)
+           VALUES (?, ?, ?, ?, NOW() - INTERVAL ? MINUTE)`,
+          [
+            issueId,
+            officer1.OFFICER_ID,
+            item.after_photo,
+            item.proof_remarks || 'Work completed.',
+            Math.floor(item.created_minutes_ago / 2),
+          ]
         );
 
+        const vResponse =
+          item.status === 'Disputed'
+            ? 'Disputed'
+            : item.status === 'Closed'
+            ? 'Confirmed'
+            : 'Pending';
+        const vRemarks = item.dispute_remarks || item.citizen_confirm_remarks || null;
+        const vDisputePhoto = item.dispute_photo || null;
+
         await conn.query(
-          `INSERT INTO REPORT_VERIFICATION (ISSUE_ID, PROOF_ID, REPORTER_ID, RESPONSE, DEADLINE_AT)
-           VALUES (?, ?, ?, 'Pending', NOW() + INTERVAL 14 DAY)`,
-          [issueId, proofRes.insertId, item.citizen_id]
+          `INSERT INTO REPORT_VERIFICATION (ISSUE_ID, PROOF_ID, REPORTER_ID, RESPONSE, DISPUTE_PHOTO, REMARKS, DEADLINE_AT, RESPONDED_AT)
+           VALUES (?, ?, ?, ?, ?, ?, NOW() + INTERVAL 10 DAY, ${vResponse === 'Pending' ? 'NULL' : 'NOW() - INTERVAL 120 MINUTE'})`,
+          [issueId, proofRes.insertId, item.citizen_id, vResponse, vDisputePhoto, vRemarks]
         );
       }
 
@@ -270,6 +294,38 @@ async function seedIssues() {
             issueId,
             officer1.OFFICER_ID,
             JSON.stringify({ remarks: item.proof_remarks }),
+          ]
+        );
+      }
+
+      if (item.status === 'Disputed') {
+        await conn.query(
+          `INSERT INTO AUDIT_LOG (ENTITY_TYPE, ENTITY_ID, ACTION, PERFORMED_BY_TYPE, PERFORMED_BY_ID, DETAILS, CREATED_AT)
+           VALUES ('RESOLUTION_PROOF', ?, 'PROOF_SUBMITTED', 'OFFICER', ?, ?, NOW() - INTERVAL 180 MINUTE)`,
+          [
+            issueId,
+            officer1.OFFICER_ID,
+            JSON.stringify({ remarks: item.proof_remarks }),
+          ]
+        );
+        await conn.query(
+          `INSERT INTO AUDIT_LOG (ENTITY_TYPE, ENTITY_ID, ACTION, PERFORMED_BY_TYPE, PERFORMED_BY_ID, DETAILS, CREATED_AT)
+           VALUES ('REPORT_VERIFICATION', ?, 'VERIFICATION_DISPUTED', 'CITIZEN', ?, ?, NOW() - INTERVAL 120 MINUTE)`,
+          [
+            issueId,
+            item.citizen_id,
+            JSON.stringify({ issueId, remarks: item.dispute_remarks, disputePhoto: item.dispute_photo }),
+          ]
+        );
+        await conn.query(
+          `INSERT INTO AUDIT_LOG (ENTITY_TYPE, ENTITY_ID, ACTION, PERFORMED_BY_TYPE, PERFORMED_BY_ID, OLD_STATE, NEW_STATE, DETAILS, CREATED_AT)
+           VALUES ('ISSUE', ?, 'STATUS_CHANGED', 'CITIZEN', ?, ?, ?, ?, NOW() - INTERVAL 120 MINUTE)`,
+          [
+            issueId,
+            item.citizen_id,
+            JSON.stringify({ status: 'Resolved' }),
+            JSON.stringify({ status: 'Disputed' }),
+            JSON.stringify({ note: item.dispute_remarks }),
           ]
         );
       }

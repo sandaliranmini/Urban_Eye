@@ -191,3 +191,201 @@ test('adminController.exportAnalytics exports RFC 4180 compliant CSV', async () 
 
   db.query = origQuery;
 });
+
+
+test('adminController.rejectVerification reopens disputed issue to In Progress, resets resolution dates, and logs audit trail', async () => {
+  const origGetConnection = db.getConnection;
+
+  const executedQueries = [];
+  const mockConn = {
+    beginTransaction: async () => {},
+    commit: async () => {},
+    rollback: async () => {},
+    release: () => {},
+    query: async (sql, params) => {
+      executedQueries.push({ sql, params });
+      if (sql.includes('SELECT v.*, i.STATUS AS CURRENT_ISSUE_STATUS')) {
+        return [[{
+          VERIFICATION_ID: 2,
+          ISSUE_ID: 8,
+          CURRENT_ISSUE_STATUS: 'Disputed',
+          CURRENT_OFFICER_ID: 3,
+          RESPONSE: 'Disputed',
+          REMARKS: 'Citizen dispute: Branch still hanging on line.',
+        }]];
+      }
+      if (sql.includes('INSERT INTO AUDIT_LOG')) {
+        return [{ insertId: 99 }];
+      }
+      return [{ affectedRows: 1 }];
+    },
+  };
+
+  db.getConnection = async () => mockConn;
+
+  const req = {
+    params: { id: '2' },
+    body: {
+      notes: 'Citizen dispute verified. Branch still hazardous. Please dispatch crane crew.',
+      reassignOfficerId: 5,
+    },
+    user: { officer_id: 1, role: 'admin', full_name: 'Super Admin' },
+  };
+
+  let jsonResult = null;
+  const res = {
+    json: (d) => {
+      jsonResult = d;
+      return res;
+    },
+    status: () => res,
+  };
+
+  await adminController.rejectVerification(req, res, (err) => {
+    if (err) throw err;
+  });
+
+  assert.ok(jsonResult.success);
+  assert.strictEqual(jsonResult.data.status, 'In Progress');
+  assert.strictEqual(jsonResult.data.officerId, 5);
+
+  // Verify ISSUE update query
+  const issueUpdate = executedQueries.find((q) => q.sql.includes('UPDATE ISSUE'));
+  assert.ok(issueUpdate, 'Should have updated ISSUE');
+  assert.ok(issueUpdate.sql.includes("STATUS = 'In Progress'"));
+  assert.ok(issueUpdate.sql.includes('RESOLVED_AT = NULL'));
+  assert.ok(issueUpdate.sql.includes('CLOSURE_TYPE = NULL'));
+  assert.strictEqual(issueUpdate.params[0], 5); // newOfficerId
+  assert.strictEqual(issueUpdate.params[1], 8); // issueId
+
+  // Verify REPORT_VERIFICATION update query
+  const verUpdate = executedQueries.find((q) => q.sql.includes('UPDATE REPORT_VERIFICATION'));
+  assert.ok(verUpdate, 'Should have updated REPORT_VERIFICATION remarks');
+  assert.ok(verUpdate.sql.includes('[Supervisor Rework Request]'));
+
+  // Verify AUDIT_LOG insertion
+  const auditInsert = executedQueries.find((q) => q.sql.includes('INSERT INTO AUDIT_LOG'));
+  assert.ok(auditInsert, 'Should have inserted audit log entry');
+  assert.strictEqual(auditInsert.params[2], 'STATUS_CHANGED'); // ACTION
+  assert.strictEqual(auditInsert.params[3], 'ADMIN'); // PERFORMED_BY_TYPE
+  assert.strictEqual(auditInsert.params[4], 1); // PERFORMED_BY_ID
+
+  db.getConnection = origGetConnection;
+});
+
+
+test('adminController.createWard creates a new ward in council with audit log', async () => {
+  const origQuery = db.query;
+  const executed = [];
+
+  db.query = async (sql, params) => {
+    executed.push({ sql, params });
+    if (sql.includes('FROM COUNCIL WHERE COUNCIL_ID = ?')) {
+      return [[{ COUNCIL_ID: 1, COUNCIL_NAME: 'Dompe Pradeshiya Sabha' }]];
+    }
+    if (sql.includes('SELECT WARD_ID FROM WARD WHERE COUNCIL_ID = ?')) {
+      return [[]]; // no duplicate
+    }
+    if (sql.includes('INSERT INTO WARD')) {
+      return [{ insertId: 26 }];
+    }
+    if (sql.includes('INSERT INTO AUDIT_LOG')) {
+      return [{ insertId: 101 }];
+    }
+    if (sql.includes('SELECT w.*, c.COUNCIL_NAME')) {
+      return [[{
+        WARD_ID: 26,
+        COUNCIL_ID: 1,
+        WARD_NAME: 'Wathurugama North',
+        DESCRIPTION: 'New expansion ward',
+        COUNCIL_NAME: 'Dompe Pradeshiya Sabha',
+        COUNCIL_TYPE: 'Pradeshiya Sabha',
+      }]];
+    }
+    return [[]];
+  };
+
+  const req = {
+    body: {
+      council_id: 1,
+      ward_name: 'Wathurugama North',
+      description: 'New expansion ward',
+    },
+    user: { officer_id: 1, role: 'admin' },
+  };
+
+  let jsonResult = null;
+  let statusCode = 200;
+  const res = {
+    status: (code) => {
+      statusCode = code;
+      return res;
+    },
+    json: (d) => {
+      jsonResult = d;
+      return res;
+    },
+  };
+
+  await adminController.createWard(req, res, (err) => {
+    if (err) throw err;
+  });
+
+  assert.strictEqual(statusCode, 201);
+  assert.ok(jsonResult.success);
+  assert.strictEqual(jsonResult.data.WARD_NAME, 'Wathurugama North');
+
+  const auditInsert = executed.find((q) => q.sql.includes('INSERT INTO AUDIT_LOG'));
+  assert.ok(auditInsert, 'Should insert WARD_CREATED into AUDIT_LOG');
+  assert.strictEqual(auditInsert.params[2], 'WARD_CREATED');
+
+  db.query = origQuery;
+});
+
+test('adminController.deleteWard blocks deletion if issues or citizens are attached', async () => {
+  const origQuery = db.query;
+
+  db.query = async (sql) => {
+    if (sql.includes('SELECT * FROM WARD WHERE WARD_ID = ?')) {
+      return [[{ WARD_ID: 1, WARD_NAME: 'Wathurugama', COUNCIL_ID: 1 }]];
+    }
+    if (sql.includes('SELECT COUNT(*) FROM ISSUE WHERE WARD_ID = ?')) {
+      return [[{
+        issue_count: 5,
+        citizen_count: 12,
+        officer_count: 2,
+        announcement_count: 1,
+      }]];
+    }
+    return [[]];
+  };
+
+  const req = {
+    params: { id: '1' },
+    user: { officer_id: 1, role: 'admin' },
+  };
+
+  let jsonResult = null;
+  let statusCode = 200;
+  const res = {
+    status: (code) => {
+      statusCode = code;
+      return res;
+    },
+    json: (d) => {
+      jsonResult = d;
+      return res;
+    },
+  };
+
+  await adminController.deleteWard(req, res, (err) => {
+    if (err) throw err;
+  });
+
+  assert.strictEqual(statusCode, 400);
+  assert.ok(!jsonResult.success);
+  assert.ok(jsonResult.message.includes('Cannot delete ward'));
+  assert.ok(jsonResult.message.includes('5 issue report(s)'));
+
+  db.query = origQuery;
+});
